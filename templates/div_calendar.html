@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dividend Calendar</h1>
+<p class="dc-subtitle">Ex-dividend &amp; estimated pay dates for portfolio holdings</p>
+
+<div class="dc-filters">
+    <button class="dc-filter-btn active" data-filter="all">All</button>
+    <button class="dc-filter-btn" data-filter="upcoming">Upcoming</button>
+    <button class="dc-filter-btn" data-filter="past30">Past 30 Days</button>
+    <button class="dc-filter-btn" data-filter="next30">Next 30 Days</button>
+    <span class="dc-count" id="dc-count"></span>
+    <span class="dc-paydate-note">* estimated pay date &nbsp;|&nbsp; no asterisk = confirmed from Yahoo Finance</span>
+</div>
+
+<div id="dc-grid" class="dc-grid">
+{% for ev in events %}
+<div class="dc-card" style="border-left-color: {{ ev.color }};"
+     data-date="{{ ev.date }}"
+     data-pay-date="{{ ev.pay_date }}"
+     data-ticker="{{ ev.ticker }}"
+     data-freq="{{ ev.freq }}">
+    <div class="dc-date-col">
+        <span class="dc-day">{{ ev.day }}</span>
+        <span class="dc-month">{{ ev.month }}</span>
+        <span class="dc-wday">{{ ev.weekday }}</span>
+    </div>
+    <div class="dc-body">
+        <div class="dc-label">Ex-Dividend Date</div>
+        <div class="dc-ticker-row">
+            <div class="dc-icon" style="background: {{ ev.color }}22; color: {{ ev.color }};">
+                {{ ev.ticker[0] }}
+            </div>
+            <div class="dc-ticker-info">
+                <span class="dc-ticker">{{ ev.ticker }}</span>
+                <span class="dc-desc">{{ ev.description[:45] }}{% if ev.description|length > 45 %}…{% endif %}</span>
+            </div>
+        </div>
+        <div class="dc-dates-row">
+            <div class="dc-date-chip dc-exdiv-chip">
+                <span class="dc-chip-label">Ex-Div</span>
+                <span class="dc-chip-val">{{ ev.month }} {{ ev.day }}</span>
+            </div>
+            <div class="dc-date-chip dc-pay-chip">
+                <span class="dc-chip-label">Pay Date</span>
+                <span class="dc-chip-val {% if ev.pay_date < today %}dc-paid-out{% else %}{% if ev.pay_estimated %}dc-est{% else %}dc-confirmed{% endif %}{% endif %} dc-pay-val">
+                    {{ ev.pay_month }} {{ ev.pay_day }}{% if ev.pay_estimated %} *{% endif %}
+                </span>
+            </div>
+        </div>
+        <div class="dc-amount">
+            {% if ev.amount is not none %}${{ ev.amount }}/share{% endif %}
+            {% if ev.freq_label %}<span class="dc-freq">, {{ ev.freq_label }}</span>{% endif %}
+        </div>
+    </div>
+</div>
+{% else %}
+<p>No ex-dividend date data found. Import data from Excel first.</p>
+{% endfor %}
+</div>
+
+<style>
+.dc-subtitle {
+    color: #8899aa;
+    font-size: .9rem;
+    margin: -.3rem 0 1.2rem;
+}
+.dc-filters {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 1.2rem;
+    flex-wrap: wrap;
+}
+.dc-filter-btn {
+    padding: 6px 16px;
+    border-radius: 20px;
+    border: 1px solid #334;
+    background: #1a1e2e;
+    color: #8899aa;
+    font-size: .82rem;
+    cursor: pointer;
+    transition: all .15s;
+}
+.dc-filter-btn:hover  { border-color: #7ecfff; color: #7ecfff; }
+.dc-filter-btn.active { background: #00c9a7; border-color: #00c9a7; color: #0a0f1e; font-weight: 600; }
+.dc-count {
+    margin-left: 4px;
+    font-size: .8rem;
+    color: #5a6a7a;
+}
+.dc-paydate-note {
+    margin-left: auto;
+    font-size: .75rem;
+    color: #556677;
+    font-style: italic;
+}
+.dc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 10px;
+}
+.dc-card {
+    background: #1a1e2e;
+    border-radius: 8px;
+    border-left: 4px solid #00c9a7;
+    padding: 13px 14px;
+    display: flex;
+    gap: 13px;
+    align-items: flex-start;
+}
+.dc-card.dc-hidden { display: none; }
+.dc-date-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 34px;
+    padding-top: 2px;
+}
+.dc-day   { font-size: 1.65rem; font-weight: 700; line-height: 1; color: #e0e8f5; }
+.dc-month { font-size: .7rem;  color: #8899aa; text-transform: uppercase; letter-spacing: .04em; }
+.dc-wday  { font-size: .65rem; color: #5a6a7a; }
+.dc-body  { flex: 1; min-width: 0; }
+.dc-label {
+    font-size: .62rem;
+    color: #00c9a7;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 5px;
+}
+.dc-ticker-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+}
+.dc-icon {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .7rem; font-weight: 700;
+    flex-shrink: 0;
+}
+.dc-ticker-info { min-width: 0; }
+.dc-ticker {
+    font-weight: 700;
+    font-size: .9rem;
+    color: #e0e8f5;
+    margin-right: 5px;
+}
+.dc-desc {
+    font-size: .73rem;
+    color: #8899aa;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Two-pill date row */
+.dc-dates-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+.dc-date-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #11151f;
+    border-radius: 5px;
+    padding: 3px 8px;
+    min-width: 68px;
+}
+.dc-exdiv-chip { border-top: 2px solid #334455; }
+.dc-pay-chip   { border-top: 2px solid #00c9a7; }
+.dc-chip-label {
+    font-size: .58rem;
+    color: #556677;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.dc-chip-val {
+    font-size: .82rem;
+    color: #b0c0d0;
+    font-weight: 500;
+}
+.dc-chip-val.dc-est       { color: #7ecfff; }
+.dc-chip-val.dc-confirmed { color: #00e89a; font-weight: 600; }
+.dc-chip-val.dc-paid-out  { color: #00e89a; font-weight: 700; }
+.dc-amount { font-size: .78rem; color: #7a8899; }
+.dc-freq   { color: #5a6a7a; }
+
+/* today highlight */
+.dc-card.dc-today { box-shadow: 0 0 0 1px rgba(0,201,167,.35); }
+
+/* already-paid cards — subtle green tint + checkmark badge */
+.dc-card.dc-paid {
+    opacity: .72;
+    border-left-color: #2a6655 !important;
+}
+.dc-card.dc-paid .dc-pay-chip {
+    border-top-color: #2a6655;
+}
+.dc-paid-badge {
+    font-size: .62rem;
+    color: #2a9975;
+    font-weight: 600;
+    letter-spacing: .04em;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+</style>
+
+<script>
+(function () {
+    var today = "{{ today }}";
+    var grid  = document.getElementById("dc-grid");
+
+    function addDays(iso, n) {
+        var d = new Date(iso + "T00:00:00");
+        d.setDate(d.getDate() + n);
+        return d.toISOString().slice(0, 10);
+    }
+
+    var cards = Array.from(document.querySelectorAll(".dc-card"));
+    var activeFilter = "all";
+
+    // Highlight today's cards (by ex-div date)
+    cards.forEach(function(c) {
+        if (c.dataset.date === today) c.classList.add("dc-today");
+    });
+
+    // ── Filter (uses pay date) ────────────────────────────────────────────
+    function applyFilter(filter) {
+        activeFilter = filter;
+        var past30start = addDays(today, -30);
+        var next30end   = addDays(today, 30);
+        var visible = 0;
+        cards.forEach(function(c) {
+            var d = c.dataset.payDate || c.dataset.date;
+            var show = false;
+            if (filter === "all")          show = true;
+            else if (filter === "upcoming") show = d >= today;
+            else if (filter === "past30")   show = d >= past30start && d < today;
+            else if (filter === "next30")   show = d >= today && d <= next30end;
+            c.classList.toggle("dc-hidden", !show);
+            if (show) visible++;
+        });
+        document.getElementById("dc-count").textContent =
+            visible + " holding" + (visible !== 1 ? "s" : "");
+    }
+
+    document.querySelectorAll(".dc-filter-btn").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+            document.querySelectorAll(".dc-filter-btn").forEach(function(b) {
+                b.classList.remove("active");
+            });
+            btn.classList.add("active");
+            applyFilter(btn.dataset.filter);
+        });
+    });
+
+    applyFilter("all");
+
+    // ── Mark already-paid cards ───────────────────────────────────────────
+    var now        = new Date(today + "T00:00:00");
+    var dow        = now.getDay();
+    var monday     = new Date(now);
+    monday.setDate(now.getDate() - ((dow + 6) % 7));
+    var monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    var weekStartIso  = monday.toISOString().slice(0, 10);
+    var monthStartIso = monthStart.toISOString().slice(0, 10);
+
+    cards.forEach(function(c) {
+        var pd = c.dataset.payDate;
+        if (!pd || pd >= today) return;
+        var isPaidWeek  = pd >= weekStartIso;
+        var isPaidMonth = pd >= monthStartIso;
+        if (isPaidWeek || isPaidMonth) {
+            c.classList.add("dc-paid");
+            var payVal = c.querySelector(".dc-pay-val");
+            if (payVal) payVal.classList.add("dc-paid-out");
+            var ticker = c.querySelector(".dc-ticker");
+            if (ticker && !ticker.querySelector(".dc-paid-badge")) {
+                var badge = document.createElement("span");
+                badge.className   = "dc-paid-badge";
+                badge.textContent = isPaidWeek ? "✓ paid this week" : "✓ paid this month";
+                ticker.parentNode.appendChild(badge);
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}

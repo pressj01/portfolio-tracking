@@ -1,0 +1,331 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+}
+
+nav {
+    background: #16213e;
+    padding: 1rem 2rem;
+    display: flex;
+    gap: 2rem;
+    border-bottom: 2px solid #0f3460;
+}
+
+nav a {
+    color: #e0e0e0;
+    text-decoration: none;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+nav a:hover {
+    background: #0f3460;
+}
+
+nav a.nav-active {
+    background: #e94560;
+    color: #fff;
+}
+
+.container {
+    max-width: 1700px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+h1 {
+    margin-bottom: 1.5rem;
+    color: #e94560;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.manage-actions {
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.manage-actions form {
+    margin-bottom: 0.5rem;
+}
+
+.btn {
+    background: #e94560;
+    color: #fff;
+    border: none;
+    padding: 0.7rem 1.5rem;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.btn:hover {
+    background: #c73652;
+}
+
+.info {
+    color: #a0a0a0;
+    font-size: 0.95rem;
+}
+
+.flash {
+    padding: 0.8rem 1.2rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+.flash.success {
+    background: #1b4332;
+    color: #95d5b2;
+    border: 1px solid #2d6a4f;
+}
+
+.flash.error {
+    background: #461220;
+    color: #f4a0a0;
+    border: 1px solid #6b1d2a;
+}
+
+.table-wrapper {
+    overflow-x: auto;
+    border-radius: 6px;
+    border: 1px solid #0f3460;
+}
+
+/* Frozen columns (Ticker + Description) */
+td.col-frozen {
+    position: sticky;
+    z-index: 1;
+    background: #1a1a2e;
+}
+th.col-frozen {
+    position: sticky;
+    z-index: 2;   /* above both regular sticky header and frozen td cells */
+    background: #16213e;
+}
+tr:hover td.col-frozen {
+    background: #16213e;
+}
+/* Divider after the last frozen column */
+[data-freeze="1"] {
+    border-right: 2px solid #0f3460;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+th {
+    background: #16213e;
+    color: #e94560;
+    padding: 0.6rem 0.8rem;
+    text-align: left;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    user-select: none;
+}
+
+th.sortable {
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+th.sortable:hover {
+    background: #0f3460;
+}
+
+.sort-arrow {
+    font-size: 0.75rem;
+    color: #e0e0e0;
+}
+
+td {
+    padding: 0.5rem 0.8rem;
+    border-top: 1px solid #0f3460;
+}
+
+tr:hover {
+    background: #16213e;
+}
+
+.chart {
+    margin-bottom: 2rem;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+p {
+    color: #a0a0a0;
+    line-height: 1.6;
+}
+
+/* Payouts page */
+h2 {
+    color: #e94560;
+    margin: 1.5rem 0 1rem;
+}
+
+.payout-section {
+    margin-bottom: 3rem;
+}
+
+.add-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.add-form input {
+    background: #16213e;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+}
+
+.btn-edit {
+    background: #0f3460;
+}
+
+.btn-edit:hover {
+    background: #1a4a8a;
+}
+
+.btn-del {
+    background: #6b1d2a;
+}
+
+.btn-del:hover {
+    background: #8b2a3a;
+}
+
+.btn-cancel {
+    background: #555;
+}
+
+.btn-cancel:hover {
+    background: #777;
+}
+
+tfoot td {
+    border-top: 2px solid #e94560;
+}
+
+/* Edit overlay */
+.edit-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.edit-panel {
+    background: #1a1a2e;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 2rem;
+    min-width: 320px;
+}
+
+.edit-panel h3 {
+    color: #e94560;
+    margin-bottom: 1rem;
+}
+
+.edit-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+}
+
+.edit-fields label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.edit-fields input {
+    background: #16213e;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    width: 180px;
+}
+
+.edit-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* Ticker panels */
+.ticker-panel {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.ticker-panel h3 {
+    color: #e94560;
+    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
+}
+
+.ticker-table {
+    width: auto;
+    font-size: 0.8rem;
+}
+
+.ticker-table th {
+    background: #1a1a2e;
+    padding: 0.4rem 0.6rem;
+}
+
+.ticker-table td {
+    padding: 0.3rem 0.6rem;
+}
+
+.ticker-list {
+    font-size: 0.8rem;
+    color: #95d5b2;
+    max-width: 300px;
+    white-space: normal;
+    word-break: break-word;
+}

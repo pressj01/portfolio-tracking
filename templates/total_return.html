@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Total Return Dashboard</h1>
+
+{% if table is not none and table|length > 0 %}
+
+<!-- ── Summary cards (DB / all-time) ─────────────────────── -->
+{% set total_cost   = table['purchase_value'].sum() %}
+{% set total_curr   = table['current_value'].sum() %}
+{% set total_divs   = table['total_divs_received'].sum() %}
+{% set total_gl     = table['gain_or_loss'].fillna(0).sum() %}
+{% set total_tr     = total_gl + total_divs %}
+{% set total_tr_pct = (total_tr / total_cost * 100) if total_cost else 0 %}
+
+<p class="tr-note">
+    Summary cards show <strong>all-time since purchase</strong> figures from your portfolio database.
+    The charts below are fetched live from Yahoo Finance and can be filtered by time period.
+</p>
+
+<div class="summary-cards">
+    <div class="summary-card">
+        <div class="card-label">Total Invested</div>
+        <div class="card-value">${{ "{:,.0f}".format(total_cost) }}</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-label">Current Value</div>
+        <div class="card-value">${{ "{:,.0f}".format(total_curr) }}</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-label">Price Gain / Loss</div>
+        <div class="card-value {{ 'pos' if total_gl >= 0 else 'neg' }}">${{ "{:,.0f}".format(total_gl) }}</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-label">Total Divs Received</div>
+        <div class="card-value">${{ "{:,.0f}".format(total_divs) }}</div>
+    </div>
+    <div class="summary-card {{ 'card-pos' if total_tr >= 0 else 'card-neg' }}">
+        <div class="card-label">Total Return $</div>
+        <div class="card-value {{ 'pos' if total_tr >= 0 else 'neg' }}">${{ "{:,.0f}".format(total_tr) }}</div>
+    </div>
+    <div class="summary-card {{ 'card-pos' if total_tr_pct >= 0 else 'card-neg' }}">
+        <div class="card-label">Total Return %</div>
+        <div class="card-value {{ 'pos' if total_tr_pct >= 0 else 'neg' }}">{{ "%.2f"|format(total_tr_pct) }}%</div>
+    </div>
+    <div class="summary-card" id="spy-card" style="display:none">
+        <div class="card-label" id="spy-card-label">SPY Return</div>
+        <div class="card-value" id="spy-card-value">—</div>
+    </div>
+</div>
+
+<!-- ── Period controls ───────────────────────────────────── -->
+<div class="period-bar">
+    <span class="period-bar-label">Period:</span>
+    <div class="period-btns" id="period-btns">
+        <button class="pbtn" data-period="1mo">1M</button>
+        <button class="pbtn" data-period="3mo">3M</button>
+        <button class="pbtn" data-period="6mo">6M</button>
+        <button class="pbtn" data-period="ytd">YTD</button>
+        <button class="pbtn pbtn-active" data-period="1y">1Y</button>
+        <button class="pbtn" data-period="2y">2Y</button>
+        <button class="pbtn" data-period="5y">5Y</button>
+        <button class="pbtn" data-period="max">Max</button>
+        <span class="pbtn-divider">|</span>
+        <button class="pbtn pbtn-year" data-period="2021">2021</button>
+        <button class="pbtn pbtn-year" data-period="2022">2022</button>
+        <button class="pbtn pbtn-year" data-period="2023">2023</button>
+        <button class="pbtn pbtn-year" data-period="2024">2024</button>
+        <button class="pbtn pbtn-year" data-period="2025">2025</button>
+    </div>
+</div>
+
+<!-- ── Loading / error ───────────────────────────────────── -->
+<div id="chart-loading" class="chart-loading" style="display:none">
+    <div class="spinner"></div> Fetching data from Yahoo Finance…
+</div>
+<div id="chart-error" class="flash error" style="display:none"></div>
+
+<!-- ── Bar chart (AJAX) ──────────────────────────────────── -->
+<h2>Total Return % by Ticker <span id="bar-period-label" class="period-inline"></span></h2>
+<p class="tr-note">
+    Green = positive return, Red = negative. Gold dashed line = SPY return for the same period.
+    Uses dividend-adjusted prices from Yahoo Finance.
+</p>
+<div id="chart-bar" class="chart chart-tall"></div>
+
+<!-- ── Price history (AJAX) ──────────────────────────────── -->
+<h2>Price Performance <span id="hist-period-label" class="period-inline"></span></h2>
+<p class="tr-note">
+    Prices normalized to 100 at the start of the selected period (dividend-adjusted).
+    Default shows top 5 gainers + bottom 5 losers + SPY. Click legend to toggle.
+</p>
+<div class="preset-btns">
+    <span class="preset-label">Show:</span>
+    <button class="btn btn-sm preset-btn" data-preset="top10">Top 10 Gainers</button>
+    <button class="btn btn-sm preset-btn" data-preset="bottom10">Bottom 10 Losers</button>
+    <button class="btn btn-sm preset-btn" data-preset="spy_only">SPY Only</button>
+    <button class="btn btn-sm preset-btn" data-preset="all">All Tickers</button>
+    <button class="btn btn-sm preset-btn" data-preset="none">None</button>
+</div>
+<div id="chart-history" class="chart chart-history"></div>
+
+<!-- ── Scatter chart (static / DB data) ──────────────────── -->
+<h2>Total Return % vs Yield on Cost <span class="period-inline">(Since Purchase)</span></h2>
+<p class="tr-note">
+    Bubble size = position size (dollars invested). X-axis = annual yield on cost from your database.
+    This chart uses all-time data since each position was purchased and does not change with period selection.
+</p>
+{% if scatter_error %}
+<div class="flash error" style="white-space:pre-wrap;font-size:0.75rem">Scatter chart error: {{ scatter_error }}</div>
+{% elif scatter %}
+<div id="chart-scatter" class="chart"></div>
+{% else %}
+<p class="tr-note" style="color:#ff9955">Scatter chart could not be generated — no data available.</p>
+{% endif %}
+
+<!-- ── Sortable Summary Table ────────────────────────────── -->
+<h2>Holdings — All-Time Total Return Summary</h2>
+<p class="tr-note">Click any column header to sort. These figures are from your database (since each position was opened).</p>
+
+<div class="table-wrapper" style="max-height:70vh;overflow-y:auto;">
+<table id="tr-table">
+    <thead>
+        <tr>
+            <th class="sortable" data-col="0">Ticker <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="1">Type <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="2">Shares <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="3">Price Paid <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="4">Curr Price <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="5">Invested <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="6">Curr Value <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="7">Price G/L <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="8">Price Ret % <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="9">Divs Rcvd <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="10">Total Ret $ <span class="sort-icon"></span></th>
+            <th class="sortable sort-desc" data-col="11">Total Ret % <span class="sort-icon"></span></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for _, row in table.iterrows() %}
+    {% set tr_pct  = row.total_return_pct  if row.total_return_pct  == row.total_return_pct  else 0 %}
+    {% set pr_pct  = row.price_return_pct  if row.price_return_pct  == row.price_return_pct  else 0 %}
+    {% set tr_dol  = row.total_return_dollar if row.total_return_dollar == row.total_return_dollar else 0 %}
+    {% set gl      = row.gain_or_loss       if row.gain_or_loss       == row.gain_or_loss       else 0 %}
+    {% set divs    = row.total_divs_received if row.total_divs_received == row.total_divs_received else 0 %}
+    <tr>
+        <td data-value="{{ row.ticker }}"><strong>{{ row.ticker }}</strong></td>
+        <td data-value="{{ row.classification_type if row.classification_type else '' }}">{{ row.classification_type if row.classification_type else '' }}</td>
+        <td class="num" data-value="{{ row.quantity if row.quantity == row.quantity else 0 }}">{{ "%.3f"|format(row.quantity) if row.quantity == row.quantity else '—' }}</td>
+        <td class="num" data-value="{{ row.price_paid if row.price_paid == row.price_paid else 0 }}">${{ "%.4f"|format(row.price_paid) if row.price_paid == row.price_paid else '—' }}</td>
+        <td class="num" data-value="{{ row.current_price if row.current_price == row.current_price else 0 }}">${{ "%.4f"|format(row.current_price) if row.current_price == row.current_price else '—' }}</td>
+        <td class="num" data-value="{{ row.purchase_value if row.purchase_value == row.purchase_value else 0 }}">${{ "{:,.2f}".format(row.purchase_value) if row.purchase_value == row.purchase_value else '—' }}</td>
+        <td class="num" data-value="{{ row.current_value if row.current_value == row.current_value else 0 }}">${{ "{:,.2f}".format(row.current_value) if row.current_value == row.current_value else '—' }}</td>
+        <td class="num {{ 'pos' if gl >= 0 else 'neg' }}" data-value="{{ gl }}">${{ "{:,.2f}".format(gl) }}</td>
+        <td class="num {{ 'pos' if pr_pct >= 0 else 'neg' }}" data-value="{{ pr_pct }}">{{ "%.2f"|format(pr_pct) }}%</td>
+        <td class="num" data-value="{{ divs }}">${{ "{:,.2f}".format(divs) }}</td>
+        <td class="num {{ 'pos' if tr_dol >= 0 else 'neg' }}" data-value="{{ tr_dol }}">${{ "{:,.2f}".format(tr_dol) }}</td>
+        <td class="num {{ 'pos' if tr_pct >= 0 else 'neg' }}" data-value="{{ tr_pct }}">{{ "%.2f"|format(tr_pct) }}%</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <td colspan="5"><strong>Portfolio Total</strong></td>
+            <td class="num"><strong>${{ "{:,.2f}".format(total_cost) }}</strong></td>
+            <td class="num"><strong>${{ "{:,.2f}".format(total_curr) }}</strong></td>
+            <td class="num {{ 'pos' if total_gl >= 0 else 'neg' }}"><strong>${{ "{:,.2f}".format(total_gl) }}</strong></td>
+            <td></td>
+            <td class="num"><strong>${{ "{:,.2f}".format(total_divs) }}</strong></td>
+            <td class="num {{ 'pos' if total_tr >= 0 else 'neg' }}"><strong>${{ "{:,.2f}".format(total_tr) }}</strong></td>
+            <td class="num {{ 'pos' if total_tr_pct >= 0 else 'neg' }}"><strong>{{ "%.2f"|format(total_tr_pct) }}%</strong></td>
+        </tr>
+    </tfoot>
+</table>
+</div>
+
+{% else %}
+<p>No portfolio data. Import data from Excel first (Dashboard → Import Data).</p>
+{% endif %}
+
+<!-- ── Render scatter (static) ───────────────────────────── -->
+{% if scatter %}
+<script>
+(function() {
+    var fig = {{ scatter | safe }};
+    Plotly.newPlot('chart-scatter', fig.data, fig.layout, {responsive: true});
+})();
+</script>
+{% endif %}
+
+<!-- ── AJAX chart loading ────────────────────────────────── -->
+<script>
+(function () {
+    var activePeriod = '1y';
+    var histFig = null; // keep reference for preset buttons
+
+    // Period button toggle
+    document.querySelectorAll('.pbtn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.pbtn').forEach(function(b){ b.classList.remove('pbtn-active'); });
+            this.classList.add('pbtn-active');
+            activePeriod = this.getAttribute('data-period');
+            loadCharts();
+        });
+    });
+
+    function loadCharts() {
+        setLoading(true);
+        clearError();
+
+        var url = '/total_return/data?period=' + encodeURIComponent(activePeriod) + '&_=' + Date.now();
+
+        fetch(url, {cache: 'no-store'})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                setLoading(false);
+                if (data.error) { showError(data.error + (data.detail ? '\n\n' + data.detail : '')); return; }
+
+                // Update period labels in headings
+                var lbl = data.period_label || activePeriod;
+                document.getElementById('bar-period-label').textContent  = '— ' + lbl;
+                document.getElementById('hist-period-label').textContent = '— ' + lbl;
+
+                // Update SPY card
+                var spyCard  = document.getElementById('spy-card');
+                var spyLabel = document.getElementById('spy-card-label');
+                var spyVal   = document.getElementById('spy-card-value');
+                if (data.spy_ret !== null && data.spy_ret !== undefined) {
+                    spyLabel.textContent = 'SPY — ' + lbl;
+                    var sv = parseFloat(data.spy_ret);
+                    spyVal.textContent = sv.toFixed(2) + '%';
+                    spyVal.className = 'card-value ' + (sv >= 0 ? 'pos' : 'neg');
+                    spyCard.style.display = '';
+                } else {
+                    spyCard.style.display = 'none';
+                }
+
+                // Bar chart
+                var barEl = document.getElementById('chart-bar');
+                Plotly.purge(barEl);
+                Plotly.newPlot(barEl, data.bar.data, data.bar.layout, {responsive: true});
+
+                // History chart
+                histFig = data.history;
+                var histEl = document.getElementById('chart-history');
+                Plotly.purge(histEl);
+                Plotly.newPlot(histEl, histFig.data, histFig.layout, {responsive: true});
+            })
+            .catch(function(err) {
+                setLoading(false);
+                showError('Network error: ' + err.message);
+            });
+    }
+
+    // Preset buttons for history chart
+    document.querySelectorAll('.preset-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (!histFig) return;
+            var preset = this.getAttribute('data-preset');
+            var count  = histFig.data.length;
+            var updates = [];
+
+            if (preset === 'spy_only') {
+                for (var i = 0; i < count; i++) updates.push(i === 0 ? true : 'legendonly');
+            } else if (preset === 'all') {
+                for (var i = 0; i < count; i++) updates.push(true);
+            } else if (preset === 'none') {
+                for (var i = 0; i < count; i++) updates.push('legendonly');
+            } else if (preset === 'top10') {
+                var lastVals = histFig.data.map(function(t, i) {
+                    if (i === 0) return {i: i, v: Infinity};
+                    var vals = (t.y || []).filter(function(v){ return v != null; });
+                    return {i: i, v: vals.length ? vals[vals.length-1] : 0};
+                });
+                var sorted = lastVals.slice(1).sort(function(a,b){ return b.v - a.v; });
+                var top = new Set([0].concat(sorted.slice(0,10).map(function(x){ return x.i; })));
+                for (var i = 0; i < count; i++) updates.push(top.has(i) ? true : 'legendonly');
+            } else if (preset === 'bottom10') {
+                var lastVals2 = histFig.data.map(function(t, i) {
+                    if (i === 0) return {i: i, v: Infinity};
+                    var vals = (t.y || []).filter(function(v){ return v != null; });
+                    return {i: i, v: vals.length ? vals[vals.length-1] : 0};
+                });
+                var sorted2 = lastVals2.slice(1).sort(function(a,b){ return a.v - b.v; });
+                var bot = new Set([0].concat(sorted2.slice(0,10).map(function(x){ return x.i; })));
+                for (var i = 0; i < count; i++) updates.push(bot.has(i) ? true : 'legendonly');
+            }
+
+            Plotly.restyle('chart-history', {visible: updates});
+        });
+    });
+
+    function setLoading(on) {
+        document.getElementById('chart-loading').style.display = on ? 'flex' : 'none';
+    }
+    function showError(msg) {
+        var el = document.getElementById('chart-error');
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+    function clearError() {
+        var el = document.getElementById('chart-error');
+        el.textContent = '';
+        el.style.display = 'none';
+    }
+
+    // Auto-load on page open
+    loadCharts();
+})();
+</script>
+
+<!-- ── Table sorting ─────────────────────────────────────── -->
+<script>
+(function () {
+    var table   = document.getElementById('tr-table');
+    if (!table) return;
+    var tbody   = table.querySelector('tbody');
+    var headers = table.querySelectorAll('th.sortable');
+    var numericCols = new Set([2,3,4,5,6,7,8,9,10,11]);
+    var lastCol = 11;
+    var asc     = false;
+
+    function sortBy(col, ascending) {
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var isNum = numericCols.has(col);
+        rows.sort(function(a, b) {
+            var av = a.querySelectorAll('td')[col].getAttribute('data-value') || '';
+            var bv = b.querySelectorAll('td')[col].getAttribute('data-value') || '';
+            if (isNum) { av = parseFloat(av)||0; bv = parseFloat(bv)||0; return ascending ? av-bv : bv-av; }
+            av = av.toLowerCase(); bv = bv.toLowerCase();
+            return ascending ? av.localeCompare(bv) : bv.localeCompare(av);
+        });
+        rows.forEach(function(r){ tbody.appendChild(r); });
+    }
+
+    headers.forEach(function(th) {
+        th.addEventListener('click', function() {
+            var col = parseInt(th.getAttribute('data-col'), 10);
+            if (lastCol === col) { asc = !asc; } else { asc = !numericCols.has(col); }
+            lastCol = col;
+            headers.forEach(function(h){ h.classList.remove('sort-asc','sort-desc'); });
+            th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+            sortBy(col, asc);
+        });
+    });
+
+    sortBy(lastCol, asc);
+})();
+</script>
+
+<style>
+.tr-note { color:#8899aa; font-size:0.88rem; margin:.25rem 0 1rem; }
+
+/* Summary cards */
+.summary-cards { display:flex; gap:.75rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+.summary-card {
+    background:#1e2a3a; border:1px solid #334; border-radius:8px;
+    padding:.8rem 1.2rem; min-width:140px; text-align:center;
+}
+.card-pos { border-color:#2a5a3a; }
+.card-neg { border-color:#5a2a2a; }
+.card-label { font-size:.75rem; color:#8899aa; text-transform:uppercase; letter-spacing:.05em; margin-bottom:.3rem; }
+.card-value { font-size:1.3rem; font-weight:bold; color:#7ecfff; }
+.pos { color:#4dff91; } .neg { color:#ff6b6b; }
+
+/* Period buttons */
+.period-bar {
+    display:flex; align-items:center; gap:.8rem; flex-wrap:wrap;
+    background:#1a2332; border:1px solid #2a3a4a; border-radius:8px;
+    padding:.8rem 1rem; margin-bottom:1.5rem;
+}
+.period-bar-label { font-size:.8rem; color:#8899aa; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+.period-btns { display:flex; gap:.3rem; flex-wrap:wrap; align-items:center; }
+.pbtn {
+    background:#0d1520; color:#8899aa; border:1px solid #2a3a4a;
+    border-radius:4px; padding:.3rem .7rem; font-size:.85rem; cursor:pointer;
+    transition:background .15s, color .15s;
+}
+.pbtn:hover { background:#2a3a4a; color:#cdd9e5; }
+.pbtn-active { background:#1a4a7a; color:#7ecfff; border-color:#2a6aaa; }
+.pbtn-year { color:#c8b4ff; border-color:#4a3a6a; }
+.pbtn-year:hover { background:#2a1a4a; color:#e0d0ff; }
+.pbtn-year.pbtn-active { background:#3a1a6a; color:#e0d0ff; border-color:#7a4aaa; }
+.pbtn-divider { color:#445; padding:0 .2rem; align-self:center; font-size:1.1rem; }
+
+/* Loading */
+.chart-loading { display:flex; align-items:center; gap:.7rem; color:#8899aa; padding:.6rem 0; margin-bottom:.5rem; }
+.spinner {
+    width:18px; height:18px; border:2px solid #334; border-top-color:#7ecfff;
+    border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Charts */
+.chart      { margin-bottom:2rem; }
+.chart-tall { min-height:400px; }
+.chart-history { min-height:550px; }
+h2 { margin-top:2rem; margin-bottom:.25rem; }
+.period-inline { font-size:.85rem; font-weight:normal; color:#7ecfff; }
+
+/* Preset buttons */
+.preset-btns { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem; }
+.preset-label { color:#8899aa; font-size:.85rem; }
+
+/* Table */
+td.num { text-align:right; }
+th.sortable { cursor:pointer; user-select:none; white-space:nowrap; }
+th.sortable:hover { background:#2a3a4a; }
+th.sort-asc, th.sort-desc { background:#1a2f45; }
+.sort-icon { font-size:.7em; margin-left:3px; color:#8899aa; }
+th.sort-asc  .sort-icon::after { content:' ▲'; color:#7ecfff; }
+th.sort-desc .sort-icon::after { content:' ▼'; color:#7ecfff; }
+th:not(.sort-asc):not(.sort-desc) .sort-icon::after { content:' ⇅'; }
+</style>
+{% endblock %}

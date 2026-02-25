@@ -1,0 +1,520 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dividend Analysis</h1>
+
+{% if all_types %}
+<div class="da-filter-bar">
+    <div class="da-filter-wrap">
+        <button class="da-filter-toggle" id="da-filter-toggle" onclick="daToggleDropdown(event)">
+            <span id="da-filter-label">All Categories</span>
+            <span class="da-filter-arrow">&#9660;</span>
+        </button>
+        <div class="da-filter-dropdown" id="da-filter-dropdown">
+            <div class="da-filter-actions">
+                <button onclick="daSelectAll()" class="da-filter-action-btn">Select All</button>
+                <button onclick="daClearAll()" class="da-filter-action-btn">Clear</button>
+            </div>
+            {% for t in all_types %}
+            <label class="da-filter-option">
+                <input type="checkbox" class="da-type-cb" value="{{ t }}" onchange="daOnFilterChange()">
+                {{ t }}
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+    <span class="da-filter-hint" id="da-filter-hint"></span>
+    <div class="da-spinner" id="da-spinner"></div>
+</div>
+{% endif %}
+
+<p class="section-note">Click any column header to sort. Click again to reverse.</p>
+
+{% if data is not none and data|length > 0 %}
+
+<!-- ── Chart grid ──────────────────────────────────── -->
+{% if charts_da %}
+<div class="da-chart-grid">
+    {% if charts_da.annual_income %}
+    <div class="da-chart-panel">
+        <div id="chart-annual-income" class="da-chart-div"></div>
+    </div>
+    {% endif %}
+    {% if charts_da.projected_monthly %}
+    <div class="da-chart-panel">
+        <div id="chart-projected-monthly" class="da-chart-div"></div>
+    </div>
+    {% endif %}
+    {% if charts_da.monthly_received %}
+    <div class="da-chart-panel">
+        <div id="chart-monthly-received" class="da-chart-div"></div>
+    </div>
+    {% endif %}
+    {% if charts_da.total_divs_ticker %}
+    <div class="da-chart-panel">
+        <div id="chart-total-divs-ticker" class="da-chart-div"></div>
+    </div>
+    {% endif %}
+    {% if charts_da.paid_for_itself %}
+    <div class="da-chart-panel">
+        <div id="chart-paid-for-itself" class="da-chart-div"></div>
+    </div>
+    {% endif %}
+    {% if charts_da.by_type %}
+    <div class="da-chart-panel">
+        <div id="chart-by-type" class="da-chart-div" style="height:420px;"></div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Summary cards -->
+<div class="summary-cards">
+    <div class="summary-card">
+        <div class="card-label">Total YTD Divs</div>
+        <div class="card-value" id="card-ytd">${{ "%.2f"|format(totals.ytd_divs) }}</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-label">Total Divs Received</div>
+        <div class="card-value" id="card-total">${{ "%.2f"|format(totals.total_divs_received) }}</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-label">Est. Monthly Income</div>
+        <div class="card-value" id="card-monthly">${{ "%.2f"|format(totals.approx_monthly_income) }}</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-label">Est. Annual Income</div>
+        <div class="card-value" id="card-annual">${{ "%.2f"|format(totals.estim_payment_per_year) }}</div>
+    </div>
+</div>
+
+<div class="table-wrapper" style="max-height:70vh;overflow-y:auto;">
+    <table id="div-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-col="0">Ticker <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="1">Description <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="2">Type <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="3">YTD Divs <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="4">Total Divs Received <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="5">Paid For Itself <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="6">Div Paid (Period) <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="7">Est. Annual <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="8">Est. Monthly <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="9">Yield on Cost <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="10">Current Yield <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="11">Gain / Loss <span class="sort-icon"></span></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for _, row in data.iterrows() %}
+            {% set paid_pct = row.paid_for_itself * 100 if row.paid_for_itself is not none and row.paid_for_itself == row.paid_for_itself else 0 %}
+            {% set ytd_val        = row.ytd_divs              if row.ytd_divs              is not none and row.ytd_divs              == row.ytd_divs              else 0 %}
+            {% set total_val      = row.total_divs_received   if row.total_divs_received   is not none and row.total_divs_received   == row.total_divs_received   else 0 %}
+            {% set div_paid_val   = row.dividend_paid         if row.dividend_paid         is not none and row.dividend_paid         == row.dividend_paid         else 0 %}
+            {% set annual_val     = row.estim_payment_per_year if row.estim_payment_per_year is not none and row.estim_payment_per_year == row.estim_payment_per_year else 0 %}
+            {% set monthly_val    = row.approx_monthly_income  if row.approx_monthly_income  is not none and row.approx_monthly_income  == row.approx_monthly_income  else 0 %}
+            {% set yoc_val        = row.annual_yield_on_cost  if row.annual_yield_on_cost  is not none and row.annual_yield_on_cost  == row.annual_yield_on_cost  else 0 %}
+            {% set cyield_val     = row.current_annual_yield  if row.current_annual_yield  is not none and row.current_annual_yield  == row.current_annual_yield  else 0 %}
+            {% set gl_val         = row.gain_or_loss          if row.gain_or_loss          is not none and row.gain_or_loss          == row.gain_or_loss          else 0 %}
+            <tr class="{{ 'paid-off' if paid_pct >= 100 else '' }}" data-type="{{ row.classification_type if row.classification_type else '' }}">
+                <td data-value="{{ row.ticker }}"><strong>{{ row.ticker }}</strong></td>
+                <td data-value="{{ row.description if row.description else '' }}">{{ row.description if row.description else '' }}</td>
+                <td data-value="{{ row.classification_type if row.classification_type else '' }}">{{ row.classification_type if row.classification_type else '' }}</td>
+                <td class="num" data-value="{{ ytd_val }}">${{ "%.2f"|format(ytd_val) }}</td>
+                <td class="num" data-value="{{ total_val }}"><strong>${{ "%.2f"|format(total_val) }}</strong></td>
+                <td class="num {{ 'highlight-green' if paid_pct >= 100 else ('highlight-yellow' if paid_pct >= 50 else '') }}" data-value="{{ paid_pct }}">
+                    {{ "%.2f%%"|format(paid_pct) if row.paid_for_itself is not none and row.paid_for_itself == row.paid_for_itself else '—' }}
+                </td>
+                <td class="num" data-value="{{ div_paid_val }}">${{ "%.2f"|format(div_paid_val) }}</td>
+                <td class="num" data-value="{{ annual_val }}">${{ "%.2f"|format(annual_val) }}</td>
+                <td class="num" data-value="{{ monthly_val }}">${{ "%.2f"|format(monthly_val) }}</td>
+                <td class="num" data-value="{{ yoc_val }}">{{ "%.2f%%"|format(yoc_val * 100) if row.annual_yield_on_cost is not none and row.annual_yield_on_cost == row.annual_yield_on_cost else '—' }}</td>
+                <td class="num" data-value="{{ cyield_val }}">{{ "%.2f%%"|format(cyield_val * 100) if row.current_annual_yield is not none and row.current_annual_yield == row.current_annual_yield else '—' }}</td>
+                <td class="num {{ 'pos' if gl_val >= 0 else 'neg' }}" data-value="{{ gl_val }}">
+                    {{ "$%.2f"|format(gl_val) if row.gain_or_loss is not none and row.gain_or_loss == row.gain_or_loss else '—' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="3"><strong>Totals</strong></td>
+                <td class="num" id="tfoot-ytd"><strong>${{ "%.2f"|format(totals.ytd_divs) }}</strong></td>
+                <td class="num" id="tfoot-total"><strong>${{ "%.2f"|format(totals.total_divs_received) }}</strong></td>
+                <td></td>
+                <td class="num" id="tfoot-divpaid"><strong>${{ "%.2f"|format(totals.dividend_paid) }}</strong></td>
+                <td class="num" id="tfoot-annual"><strong>${{ "%.2f"|format(totals.estim_payment_per_year) }}</strong></td>
+                <td class="num" id="tfoot-monthly"><strong>${{ "%.2f"|format(totals.approx_monthly_income) }}</strong></td>
+                <td colspan="3"></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+{% else %}
+<p>No dividend data available. Import data from Excel first (Dashboard → Import Data).</p>
+{% endif %}
+
+<style>
+/* ── Chart grid ── */
+.da-chart-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.da-chart-panel {
+    background: #1a1f2e;
+    border: 1px solid #2a3a4a;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.da-chart-div {
+    width: 100%;
+    height: 500px;
+}
+
+.summary-cards {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+.summary-card {
+    background: #1e2a3a;
+    border: 1px solid #334;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    min-width: 180px;
+    text-align: center;
+}
+.card-label {
+    font-size: 0.8rem;
+    color: #8899aa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.4rem;
+}
+.card-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #7ecfff;
+}
+.section-note {
+    color: #8899aa;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+td.num { text-align: right; }
+.highlight-green { color: #4dff91; font-weight: bold; }
+.highlight-yellow { color: #ffd700; }
+.paid-off { background: rgba(77,255,145,0.05); }
+.pos { color: #4dff91; }
+.neg { color: #ff6b6b; }
+
+/* Sortable headers */
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+th.sortable:hover {
+    background: #2a3a4a;
+}
+th.sortable.sort-asc  { background: #1a2f45; }
+th.sortable.sort-desc { background: #1a2f45; }
+.sort-icon { font-size: 0.7em; margin-left: 4px; color: #8899aa; }
+th.sort-asc  .sort-icon::after { content: ' ▲'; color: #7ecfff; }
+th.sort-desc .sort-icon::after { content: ' ▼'; color: #7ecfff; }
+th:not(.sort-asc):not(.sort-desc) .sort-icon::after { content: ' ⇅'; }
+</style>
+
+<script>
+(function () {
+    var table   = document.getElementById('div-table');
+    var tbody   = table.querySelector('tbody');
+    var headers = table.querySelectorAll('th.sortable');
+    var lastCol = null;
+    var asc     = true;
+
+    // Numeric columns (by index) — all except 0 (Ticker), 1 (Description), 2 (Type)
+    var numericCols = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11]);
+
+    headers.forEach(function (th) {
+        th.addEventListener('click', function () {
+            var col = parseInt(th.getAttribute('data-col'), 10);
+
+            // Toggle direction if same column, else default to descending for numbers, ascending for text
+            if (lastCol === col) {
+                asc = !asc;
+            } else {
+                asc = numericCols.has(col) ? false : true;
+            }
+            lastCol = col;
+
+            // Update header classes
+            headers.forEach(function (h) {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
+            th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+
+            // Sort rows
+            var rows = Array.from(tbody.querySelectorAll('tr'));
+            var isNum = numericCols.has(col);
+
+            rows.sort(function (a, b) {
+                var av = a.querySelectorAll('td')[col].getAttribute('data-value') || '';
+                var bv = b.querySelectorAll('td')[col].getAttribute('data-value') || '';
+
+                if (isNum) {
+                    av = parseFloat(av) || 0;
+                    bv = parseFloat(bv) || 0;
+                    return asc ? av - bv : bv - av;
+                } else {
+                    av = av.toLowerCase();
+                    bv = bv.toLowerCase();
+                    return asc
+                        ? av.localeCompare(bv)
+                        : bv.localeCompare(av);
+                }
+            });
+
+            rows.forEach(function (row) { tbody.appendChild(row); });
+        });
+    });
+})();
+</script>
+
+<style>
+/* ── Category filter bar ── */
+.da-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.da-filter-wrap { position: relative; }
+.da-filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 16px;
+    background: #1a1e2e;
+    border: 1px solid #334;
+    border-radius: 6px;
+    color: #b0c0d0;
+    font-size: .88rem;
+    cursor: pointer;
+    transition: border-color .15s;
+    white-space: nowrap;
+}
+.da-filter-toggle:hover { border-color: #7ecfff; color: #7ecfff; }
+.da-filter-toggle.active { border-color: #00c9a7; color: #00c9a7; }
+.da-filter-arrow { font-size: .65rem; color: #556677; }
+.da-filter-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 200px;
+    background: #1a1e2e;
+    border: 1px solid #334;
+    border-radius: 8px;
+    padding: 8px 0;
+    z-index: 200;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.da-filter-dropdown.open { display: block; }
+.da-filter-actions {
+    display: flex;
+    gap: 6px;
+    padding: 4px 10px 8px;
+    border-bottom: 1px solid #223;
+    margin-bottom: 4px;
+}
+.da-filter-action-btn {
+    flex: 1;
+    padding: 3px 0;
+    background: #11151f;
+    border: 1px solid #334;
+    border-radius: 4px;
+    color: #8899aa;
+    font-size: .75rem;
+    cursor: pointer;
+    transition: all .12s;
+}
+.da-filter-action-btn:hover { border-color: #7ecfff; color: #7ecfff; }
+.da-filter-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    font-size: .84rem;
+    color: #b0c0d0;
+    cursor: pointer;
+    transition: background .1s;
+}
+.da-filter-option:hover { background: #222840; }
+.da-filter-option input[type=checkbox] { accent-color: #00c9a7; width: 14px; height: 14px; }
+.da-filter-hint {
+    font-size: .8rem;
+    color: #556677;
+    font-style: italic;
+}
+.da-spinner {
+    display: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #334;
+    border-top-color: #00c9a7;
+    border-radius: 50%;
+    animation: da-spin .7s linear infinite;
+}
+.da-spinner.visible { display: block; }
+@keyframes da-spin { to { transform: rotate(360deg); } }
+</style>
+
+{% if charts_da %}
+<script>
+(function(){
+    var cfg = {responsive: true};
+    {% if charts_da.annual_income %}
+    (function(){ var f = {{ charts_da.annual_income | safe }}; Plotly.newPlot('chart-annual-income', f.data, f.layout, cfg); })();
+    {% endif %}
+    {% if charts_da.projected_monthly %}
+    (function(){ var f = {{ charts_da.projected_monthly | safe }}; Plotly.newPlot('chart-projected-monthly', f.data, f.layout, cfg); })();
+    {% endif %}
+    {% if charts_da.monthly_received %}
+    (function(){ var f = {{ charts_da.monthly_received | safe }}; Plotly.newPlot('chart-monthly-received', f.data, f.layout, cfg); })();
+    {% endif %}
+    {% if charts_da.total_divs_ticker %}
+    (function(){ var f = {{ charts_da.total_divs_ticker | safe }}; Plotly.newPlot('chart-total-divs-ticker', f.data, f.layout, cfg); })();
+    {% endif %}
+    {% if charts_da.paid_for_itself %}
+    (function(){ var f = {{ charts_da.paid_for_itself | safe }}; Plotly.newPlot('chart-paid-for-itself', f.data, f.layout, cfg); })();
+    {% endif %}
+    {% if charts_da.by_type %}
+    (function(){ var f = {{ charts_da.by_type | safe }}; Plotly.newPlot('chart-by-type', f.data, f.layout, cfg); })();
+    {% endif %}
+})();
+</script>
+{% endif %}
+<script>
+(function () {
+    var totalTypes = document.querySelectorAll('.da-type-cb').length;
+
+    // ── Dropdown open/close ────────────────────────────────────
+    window.daToggleDropdown = function (e) {
+        e.stopPropagation();
+        var dd = document.getElementById('da-filter-dropdown');
+        dd.classList.toggle('open');
+        document.getElementById('da-filter-toggle').classList.toggle('active', dd.classList.contains('open'));
+    };
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('.da-filter-wrap')) {
+            document.getElementById('da-filter-dropdown').classList.remove('open');
+            document.getElementById('da-filter-toggle').classList.remove('active');
+        }
+    });
+
+    // ── Select All / Clear ────────────────────────────────────
+    window.daSelectAll = function () {
+        document.querySelectorAll('.da-type-cb').forEach(function (cb) { cb.checked = true; });
+        daOnFilterChange();
+    };
+    window.daClearAll = function () {
+        document.querySelectorAll('.da-type-cb').forEach(function (cb) { cb.checked = false; });
+        daOnFilterChange();
+    };
+
+    // ── Main filter handler ───────────────────────────────────
+    window.daOnFilterChange = function () {
+        var checked = Array.from(document.querySelectorAll('.da-type-cb:checked')).map(function (cb) { return cb.value; });
+        var showAll = checked.length === 0 || checked.length === totalTypes;
+
+        // Update button label
+        var label = document.getElementById('da-filter-label');
+        if (showAll) {
+            label.textContent = 'All Categories';
+        } else if (checked.length === 1) {
+            label.textContent = checked[0];
+        } else {
+            label.textContent = checked.length + ' Categories';
+        }
+
+        // Filter table rows instantly (client-side)
+        var visibleRows = 0;
+        document.querySelectorAll('#div-table tbody tr').forEach(function (row) {
+            var show = showAll || checked.indexOf(row.dataset.type || '') !== -1;
+            row.style.display = show ? '' : 'none';
+            if (show) visibleRows++;
+        });
+        document.getElementById('da-filter-hint').textContent = showAll ? '' : visibleRows + ' holdings';
+
+        // Fetch updated charts + totals from server
+        var typesParam = showAll ? '' : checked.join(',');
+        daFetchCharts(typesParam);
+    };
+
+    // ── Fetch charts + update page ────────────────────────────
+    function daFetchCharts(typesParam) {
+        var spinner = document.getElementById('da-spinner');
+        spinner.classList.add('visible');
+        var url = '/dividend_analysis/data' + (typesParam ? '?types=' + encodeURIComponent(typesParam) : '');
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                spinner.classList.remove('visible');
+                var cfg = { responsive: true };
+                var charts = data.charts;
+                var t = data.totals || {};
+
+                // Re-render charts
+                var chartMap = {
+                    'annual_income':    'chart-annual-income',
+                    'projected_monthly':'chart-projected-monthly',
+                    'monthly_received': 'chart-monthly-received',
+                    'total_divs_ticker':'chart-total-divs-ticker',
+                    'paid_for_itself':  'chart-paid-for-itself',
+                    'by_type':          'chart-by-type',
+                };
+                Object.keys(chartMap).forEach(function (key) {
+                    var el = document.getElementById(chartMap[key]);
+                    if (!el) return;
+                    if (charts[key]) {
+                        var fig = JSON.parse(charts[key]);
+                        Plotly.purge(el);
+                        Plotly.newPlot(el, fig.data, fig.layout, cfg);
+                    }
+                });
+
+                // Update summary cards
+                function setCard(id, val) {
+                    var el = document.getElementById(id);
+                    if (el) el.textContent = '$' + (val || 0).toFixed(2);
+                }
+                setCard('card-ytd',     t.ytd_divs);
+                setCard('card-total',   t.total_divs_received);
+                setCard('card-monthly', t.approx_monthly_income);
+                setCard('card-annual',  t.estim_payment_per_year);
+
+                // Update tfoot
+                function setFoot(id, val) {
+                    var el = document.getElementById(id);
+                    if (el) el.innerHTML = '<strong>$' + (val || 0).toFixed(2) + '</strong>';
+                }
+                setFoot('tfoot-ytd',     t.ytd_divs);
+                setFoot('tfoot-total',   t.total_divs_received);
+                setFoot('tfoot-divpaid', t.dividend_paid);
+                setFoot('tfoot-annual',  t.estim_payment_per_year);
+                setFoot('tfoot-monthly', t.approx_monthly_income);
+            })
+            .catch(function (e) {
+                document.getElementById('da-spinner').classList.remove('visible');
+                console.error('DA filter fetch error:', e);
+            });
+    }
+})();
+</script>
+{% endblock %}

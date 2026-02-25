@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Payout Tracking</h1>
+
+<!-- ── Total Divs Received Summary ───────────────────────── -->
+{% if ticker_divs is not none and ticker_divs|length > 0 %}
+<section class="payout-section">
+    <h2>Total Dividends Received by Ticker</h2>
+    <p class="section-note">Data from most recent import — Total Divs Received column.</p>
+    <div class="table-wrapper" style="max-height:70vh;overflow-y:auto;">
+        <table id="table-ticker-divs">
+            <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th>Description</th>
+                    <th>YTD Divs</th>
+                    <th>Total Divs Received</th>
+                    <th>Paid For Itself</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for _, t in ticker_divs.iterrows() %}
+                <tr>
+                    <td><strong>{{ t.ticker }}</strong></td>
+                    <td>{{ t.description if t.description else '' }}</td>
+                    <td>{{ "$%.2f"|format(t.ytd_divs) if t.ytd_divs is not none and t.ytd_divs == t.ytd_divs else '$0.00' }}</td>
+                    <td><strong>{{ "$%.2f"|format(t.total_divs_received) if t.total_divs_received is not none and t.total_divs_received == t.total_divs_received else '$0.00' }}</strong></td>
+                    <td>{{ "%.2f%%"|format(t.paid_for_itself * 100) if t.paid_for_itself is not none and t.paid_for_itself == t.paid_for_itself else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="2"><strong>Grand Total</strong></td>
+                    <td><strong>${{ "%.2f"|format(ticker_divs['ytd_divs'].sum()) }}</strong></td>
+                    <td><strong>${{ "%.2f"|format(ticker_divs['total_divs_received'].sum()) }}</strong></td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+<!-- ── Weekly Payouts ─────────────────────────────── -->
+<section class="payout-section">
+    <h2>Weekly Payouts</h2>
+
+    <div class="actions">
+        <form action="{{ url_for('import_weekly') }}" method="post" style="display:inline">
+            <button type="submit" class="btn">Import Weekly from Excel</button>
+        </form>
+    </div>
+
+    <!-- Weekly payer tickers -->
+    {% if weekly_tickers is not none and weekly_tickers|length > 0 %}
+    <div class="ticker-panel">
+        <h3>Weekly Payer Tickers</h3>
+        <table class="ticker-table" id="table-weekly-tickers">
+            <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th>Shares</th>
+                    <th>Distribution</th>
+                    <th>Total Dividend</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for _, t in weekly_tickers.iterrows() %}
+                <tr>
+                    <td><strong>{{ t.ticker }}</strong></td>
+                    <td>{{ "%.3f"|format(t.shares) if t.shares is not none and t.shares == t.shares else '' }}</td>
+                    <td>{{ "$%.4f"|format(t.distribution) if t.distribution is not none and t.distribution == t.distribution else '' }}</td>
+                    <td>{{ "$%.2f"|format(t.total_dividend) if t.total_dividend is not none and t.total_dividend == t.total_dividend else '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Add form -->
+    <form action="{{ url_for('add_weekly') }}" method="post" class="add-form">
+        <input type="date" name="pay_date" required>
+        <input type="number" name="week_of_month" placeholder="Week #" min="1" max="5" style="width:80px">
+        <input type="number" name="amount" step="0.01" placeholder="Amount" required style="width:120px">
+        <button type="submit" class="btn btn-sm">Add</button>
+    </form>
+
+    <div class="table-wrapper" style="max-height:70vh;overflow-y:auto;">
+        <table id="table-weekly">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Week</th>
+                    <th>Amount</th>
+                    <th>Running Total</th>
+                    <th class="no-sort">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for _, row in weekly.iterrows() %}
+                <tr id="weekly-row-{{ row.id }}">
+                    <td class="display-cell">{{ row.pay_date }}</td>
+                    <td class="display-cell">{{ row.week_of_month if row.week_of_month is not none else '' }}</td>
+                    <td class="display-cell">${{ "%.2f"|format(row.amount) }}</td>
+                    <td>${{ "%.2f"|format(row.running_total) }}</td>
+                    <td class="action-cell">
+                        <button class="btn btn-sm btn-edit" onclick="startEdit('weekly', {{ row.id }}, '{{ row.pay_date }}', '{{ row.week_of_month if row.week_of_month is not none else '' }}', '{{ row.amount }}')">Edit</button>
+                        <form action="{{ url_for('delete_weekly', row_id=row.id) }}" method="post" style="display:inline"
+                              onsubmit="return confirm('Delete this entry?')">
+                            <button type="submit" class="btn btn-sm btn-del">Del</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            {% if weekly|length > 0 %}
+            <tfoot>
+                <tr>
+                    <td colspan="2"><strong>Grand Total</strong></td>
+                    <td><strong>${{ "%.2f"|format(weekly['amount'].sum()) }}</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</section>
+
+<!-- ── Monthly Payouts ────────────────────────────── -->
+<section class="payout-section">
+    <h2>Monthly Payouts</h2>
+
+    <div class="actions">
+        <form action="{{ url_for('import_monthly') }}" method="post" style="display:inline">
+            <button type="submit" class="btn">Import Monthly from Excel</button>
+        </form>
+    </div>
+
+    <!-- Add form -->
+    <form action="{{ url_for('add_monthly') }}" method="post" class="add-form">
+        <input type="number" name="year" placeholder="Year" required style="width:80px">
+        <input type="number" name="month" placeholder="Month (1-12)" min="1" max="12" required style="width:130px">
+        <input type="number" name="amount" step="0.01" placeholder="Amount" required style="width:120px">
+        <button type="submit" class="btn btn-sm">Add</button>
+    </form>
+
+    <div class="table-wrapper" style="max-height:70vh;overflow-y:auto;">
+        <table id="table-monthly">
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    <th>Month</th>
+                    <th>Amount</th>
+                    <th>Running Total</th>
+                    <th>Tickers</th>
+                    <th class="no-sort">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set month_names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+                {% for _, row in monthly.iterrows() %}
+                <tr id="monthly-row-{{ row.id }}">
+                    <td class="display-cell">{{ row.year|int }}</td>
+                    <td class="display-cell">{{ month_names[row.month|int] }}</td>
+                    <td class="display-cell">${{ "%.2f"|format(row.amount) }}</td>
+                    <td>${{ "%.2f"|format(row.running_total) }}</td>
+                    <td class="ticker-list">{{ month_to_tickers.get(row.month|int, [])|join(', ') }}</td>
+                    <td class="action-cell">
+                        <button class="btn btn-sm btn-edit" onclick="startEdit('monthly', {{ row.id }}, '{{ row.year|int }}', '{{ row.month|int }}', '{{ row.amount }}')">Edit</button>
+                        <form action="{{ url_for('delete_monthly', row_id=row.id) }}" method="post" style="display:inline"
+                              onsubmit="return confirm('Delete this entry?')">
+                            <button type="submit" class="btn btn-sm btn-del">Del</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            {% if monthly|length > 0 %}
+            <tfoot>
+                <tr>
+                    <td colspan="2"><strong>Grand Total</strong></td>
+                    <td><strong>${{ "%.2f"|format(monthly['amount'].sum()) }}</strong></td>
+                    <td colspan="3"></td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</section>
+
+<!-- Edit overlay -->
+<div id="edit-overlay" class="edit-overlay" style="display:none">
+    <div class="edit-panel">
+        <h3 id="edit-title">Edit Payout</h3>
+        <form id="edit-form" method="post">
+            <div class="edit-fields" id="edit-fields"></div>
+            <div class="edit-actions">
+                <button type="submit" class="btn btn-sm">Save</button>
+                <button type="button" class="btn btn-sm btn-cancel" onclick="cancelEdit()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function startEdit(type, id, field1, field2, amount) {
+    var overlay = document.getElementById('edit-overlay');
+    var form = document.getElementById('edit-form');
+    var fields = document.getElementById('edit-fields');
+    var title = document.getElementById('edit-title');
+
+    if (type === 'weekly') {
+        form.action = '/payouts/weekly/' + id + '/edit';
+        title.textContent = 'Edit Weekly Payout';
+        fields.innerHTML =
+            '<label>Date: <input type="date" name="pay_date" value="' + field1 + '" required></label>' +
+            '<label>Week: <input type="number" name="week_of_month" value="' + field2 + '" min="1" max="5"></label>' +
+            '<label>Amount: <input type="number" name="amount" step="0.01" value="' + amount + '" required></label>';
+    } else {
+        form.action = '/payouts/monthly/' + id + '/edit';
+        title.textContent = 'Edit Monthly Payout';
+        fields.innerHTML =
+            '<label>Year: <input type="number" name="year" value="' + field1 + '" required></label>' +
+            '<label>Month: <input type="number" name="month" value="' + field2 + '" min="1" max="12" required></label>' +
+            '<label>Amount: <input type="number" name="amount" step="0.01" value="' + amount + '" required></label>';
+    }
+    overlay.style.display = 'flex';
+}
+
+function cancelEdit() {
+    document.getElementById('edit-overlay').style.display = 'none';
+}
+
+/* ── Sortable table headers ── */
+function parseVal(str) {
+    str = str.trim();
+    if (!str || str === '—' || str === '-') return -Infinity;
+    var months = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+    if (months[str] !== undefined) return months[str];
+    var num = parseFloat(str.replace(/[$,%]/g, '').replace(/,/g, ''));
+    return isNaN(num) ? str.toLowerCase() : num;
+}
+
+function sortTable(table, col, clickedTh) {
+    var headers = table.querySelectorAll('thead th');
+    var dir = clickedTh.dataset.dir === 'asc' ? 'desc' : 'asc';
+    headers.forEach(function(th) { th.dataset.dir = ''; th.classList.remove('sort-asc','sort-desc'); });
+    clickedTh.dataset.dir = dir;
+    clickedTh.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    var tbody = table.querySelector('tbody');
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function(a, b) {
+        var aVal = parseVal(a.cells[col] ? a.cells[col].textContent : '');
+        var bVal = parseVal(b.cells[col] ? b.cells[col].textContent : '');
+        if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+        if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+}
+
+function initSortable(tableId) {
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    table.querySelectorAll('thead th').forEach(function(th, col) {
+        if (th.classList.contains('no-sort')) return;
+        th.classList.add('sortable');
+        th.addEventListener('click', function() { sortTable(table, col, th); });
+    });
+}
+
+['table-ticker-divs','table-weekly-tickers','table-weekly','table-monthly'].forEach(initSortable);
+</script>
+
+<style>
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { opacity: 0.75; }
+th.sort-asc::after  { content: ' \25B2'; font-size: 0.7em; }
+th.sort-desc::after { content: ' \25BC'; font-size: 0.7em; }
+</style>
+{% endblock %}

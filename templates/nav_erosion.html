@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 style="margin-bottom:0.3rem">NAV Erosion Back-Tester</h1>
+<p style="color:#aaa;margin-top:0;margin-bottom:1.2rem;font-size:0.875rem">
+  High-yield ETFs often pay large distributions while the share price slowly declines.
+  This tool shows month-by-month how many extra shares you need to reinvest to preserve
+  your original portfolio value — and what happens at any chosen reinvestment level (0–100%).
+  Up to 10 years of history is supported; if the ETF doesn't go back that far, a notice will
+  appear and results will start from the earliest available date.
+  <br>
+  <span style="color:#7ecfff">Blue line</span> = share price &nbsp;&middot;&nbsp;
+  <span style="color:#00e89a">Green line</span> = portfolio value &nbsp;&middot;&nbsp;
+  <span style="color:#888">Dashed gray</span> = initial investment (break-even)
+  <br><br>
+  <strong style="color:#ccc">Shares Deficit</strong> =
+  <em>Break-Even Shares</em> &minus; <em>Total Shares Held</em>, where
+  Break-Even Shares = Initial Investment &divide; Current Price (i.e. how many shares you'd need
+  right now for your portfolio to equal what you originally put in).
+  A <span style="color:#e05555;font-weight:600">positive (red)</span> deficit means you're short
+  that many shares to recover your principal at today's price — NAV erosion is winning.
+  A <span style="color:#00c853;font-weight:600">negative (green)</span> surplus means you hold
+  more shares than break-even requires — your portfolio is already worth more than your initial
+  investment, either from price appreciation or accumulated reinvestment.
+</p>
+
+<!-- ── Input form ── -->
+<div style="display:flex;flex-wrap:wrap;gap:0.9rem;align-items:flex-end;margin-bottom:1.4rem;
+            background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:1rem 1.2rem">
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <label style="font-size:0.78rem;color:#aaa">Ticker</label>
+    <input id="ne-ticker" type="text" placeholder="e.g. JEPI" maxlength="10"
+           style="width:90px;padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                  border-radius:5px;color:#e0e0e0;font-size:0.9rem;text-transform:uppercase">
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <label style="font-size:0.78rem;color:#aaa">Initial Investment ($)</label>
+    <input id="ne-amount" type="number" min="1" step="100" value="10000"
+           style="width:130px;padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                  border-radius:5px;color:#e0e0e0;font-size:0.9rem">
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <label style="font-size:0.78rem;color:#aaa">Start Date</label>
+    <input id="ne-start" type="date" value="2015-01-01"
+           style="padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                  border-radius:5px;color:#e0e0e0;font-size:0.9rem">
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <label style="font-size:0.78rem;color:#aaa">End Date</label>
+    <input id="ne-end" type="date" value="2025-12-31"
+           style="padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                  border-radius:5px;color:#e0e0e0;font-size:0.9rem">
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem;min-width:180px">
+    <label style="font-size:0.78rem;color:#aaa">
+      Reinvest %: <span id="ne-reinvest-label" style="color:#7ecfff;font-weight:700">0%</span>
+    </label>
+    <div style="display:flex;align-items:center;gap:0.6rem">
+      <input id="ne-reinvest" type="range" min="0" max="100" value="0" step="1"
+             style="flex:1;accent-color:#7ecfff">
+      <input id="ne-reinvest-num" type="number" min="0" max="100" value="0" step="1"
+             style="width:54px;padding:0.4rem 0.4rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                    border-radius:5px;color:#e0e0e0;font-size:0.85rem;text-align:center">
+    </div>
+  </div>
+
+  <button id="ne-run-btn" onclick="runBacktest()"
+          style="padding:0.45rem 1.2rem;background:#1a1a3a;border:1px solid #7ecfff;
+                 border-radius:5px;color:#7ecfff;font-size:0.9rem;cursor:pointer;
+                 align-self:flex-end;margin-bottom:1px">
+    Run Backtest
+  </button>
+</div>
+
+<!-- ── Spinner ── -->
+<div id="ne-spinner" style="display:none;flex-direction:column;align-items:center;
+                             justify-content:center;padding:5rem 0;gap:1.1rem">
+  <div style="width:52px;height:52px;border:5px solid #2a2a3e;border-top-color:#7ecfff;
+              border-radius:50%;animation:ne-spin 0.75s linear infinite"></div>
+  <p style="color:#aaa;margin:0;font-size:0.95rem">Fetching price data &amp; calculating&hellip;</p>
+</div>
+<style>@keyframes ne-spin { to { transform: rotate(360deg); } }</style>
+
+<!-- ── Error display ── -->
+<div id="ne-error" style="display:none" class="flash error"></div>
+
+<!-- ── Warning (ETF date range notice) ── -->
+<div id="ne-warning" style="display:none;background:#2a1f00;border:1px solid #f9a825;
+     border-radius:6px;padding:0.6rem 1rem;margin-bottom:1rem;
+     color:#f9a825;font-size:0.875rem">
+  &#9888;&nbsp;<span id="ne-warning-text"></span>
+</div>
+
+<!-- ── Summary stats strip ── -->
+<div id="ne-summary" style="display:none;flex-wrap:wrap;gap:1rem;margin-bottom:1.2rem">
+  <!-- tiles populated by JS -->
+</div>
+
+<!-- ── Chart ── -->
+<div id="ne-chart-wrap" style="display:none">
+  <div id="ne-chart" style="width:100%;height:420px"></div>
+</div>
+
+<!-- ── Results table ── -->
+<div id="ne-table-wrap" style="display:none">
+
+  <style>
+  .net-outer {
+      max-height: 520px;
+      overflow: auto;
+      border: 1px solid #2a2a3e;
+      border-radius: 6px;
+      margin-top: 1.4rem;
+  }
+  .net {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      font-size: 0.82rem;
+  }
+  .net th,
+  .net td {
+      padding: 0.38rem 0.75rem;
+      text-align: right;
+      border-bottom: 1px solid #1e1e38;
+      background: #111124;
+      white-space: nowrap;
+  }
+  .net th:first-child,
+  .net td:first-child { text-align: left; }
+  .net thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #0b0b1c;
+      border-bottom: 2px solid #3a3a5c;
+      cursor: pointer;
+      user-select: none;
+      color: #ccc;
+      font-size: 0.78rem;
+  }
+  .net thead th:hover { background: #14143a; }
+  .net thead th::after {
+      content: attr(data-arrow);
+      margin-left: 4px;
+      font-size: 0.65rem;
+      color: #7ecfff;
+  }
+  .net-date {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      min-width: 78px;
+      max-width: 78px;
+      border-right: 1px solid #2a2a3e;
+      background: #111124;
+      box-shadow: 3px 0 8px rgba(0,0,0,0.5);
+  }
+  thead .net-date {
+      z-index: 4;
+      background: #0b0b1c;
+  }
+  .net tbody tr:hover td { background: #1a1a3a !important; }
+  .val-neg  { color: #e05555; }
+  .val-pos  { color: #00c853; }
+  .deficit  { color: #e05555; font-weight: 600; }
+  .surplus  { color: #00c853; font-weight: 600; }
+  .grp-left { border-left: 1px solid #2a2a3e; }
+  </style>
+
+  <h2 style="margin-top:0;margin-bottom:0.4rem;font-size:1rem;color:#ccc">
+    Monthly Detail
+    <span style="font-weight:400;font-size:0.75rem;color:#666">&nbsp;&mdash; click any header to sort</span>
+  </h2>
+
+  <div class="net-outer">
+    <table class="net" id="ne-tbl">
+      <thead>
+        <tr>
+          <th class="net-date" data-col="0" data-arrow="">Date</th>
+          <th data-col="1"  data-arrow="">Price</th>
+          <th data-col="2"  data-arrow="">Price &Delta;%</th>
+          <th class="grp-left" data-col="3"  data-arrow="">Div / Share</th>
+          <th data-col="4"  data-arrow="">Total Dist</th>
+          <th data-col="5"  data-arrow="">Reinvested</th>
+          <th data-col="6"  data-arrow="">Shares Bought</th>
+          <th class="grp-left" data-col="7"  data-arrow="">Total Shares</th>
+          <th data-col="8"  data-arrow="">Portfolio Value</th>
+          <th class="grp-left" data-col="9"  data-arrow="">Break-Even Shares</th>
+          <th data-col="10" data-arrow="">Shares Deficit</th>
+        </tr>
+      </thead>
+      <tbody id="ne-tbody"></tbody>
+    </table>
+  </div>
+</div><!-- #ne-table-wrap -->
+
+<script>
+(function () {
+
+    /* ── Sync slider ↔ number input ── */
+    var slider  = document.getElementById('ne-reinvest');
+    var numInp  = document.getElementById('ne-reinvest-num');
+    var label   = document.getElementById('ne-reinvest-label');
+
+    function syncReinvest(v) {
+        var clamped = Math.max(0, Math.min(100, parseInt(v, 10) || 0));
+        slider.value  = clamped;
+        numInp.value  = clamped;
+        label.textContent = clamped + '%';
+    }
+    slider.addEventListener('input',  function () { syncReinvest(slider.value); });
+    numInp.addEventListener('input',  function () { syncReinvest(numInp.value); });
+    numInp.addEventListener('change', function () { syncReinvest(numInp.value); });
+
+    /* ── Helpers ── */
+
+    function fmt$(v)   { return '$' + v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+    function fmt4(v)   { return v.toLocaleString('en-US', {minimumFractionDigits:4, maximumFractionDigits:4}); }
+    function fmtPct(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
+
+    function statTile(label, value, color) {
+        return '<div style="background:#111124;border:1px solid #2a2a3e;border-radius:6px;' +
+               'padding:0.5rem 1.1rem;text-align:center;min-width:130px">' +
+               '<div style="font-size:1.3rem;font-weight:700;color:' + color + '">' + value + '</div>' +
+               '<div style="font-size:0.72rem;color:#aaa;margin-top:2px">' + label + '</div>' +
+               '</div>';
+    }
+
+    function buildRow(r) {
+        var pctCls  = r.price_delta_pct < 0 ? ' val-neg' : (r.price_delta_pct > 0 ? ' val-pos' : '');
+        var defCls  = r.shares_deficit  > 0 ? 'deficit'  : 'surplus';
+        var defSign = r.shares_deficit  > 0 ? ''         : '';
+        return '<tr>' +
+            '<td class="net-date" data-val="' + r.date + '"><strong>' + r.date + '</strong></td>' +
+            '<td data-val="' + r.price + '">' + fmt$(r.price) + '</td>' +
+            '<td class="' + pctCls + '" data-val="' + r.price_delta_pct + '">' + fmtPct(r.price_delta_pct) + '</td>' +
+            '<td class="grp-left" data-val="' + r.div_per_share + '">' + (r.div_per_share > 0 ? fmt$(r.div_per_share) : '&mdash;') + '</td>' +
+            '<td data-val="' + r.total_dist + '">' + fmt$(r.total_dist) + '</td>' +
+            '<td data-val="' + r.reinvested + '">' + fmt$(r.reinvested) + '</td>' +
+            '<td data-val="' + r.shares_bought + '">' + fmt4(r.shares_bought) + '</td>' +
+            '<td class="grp-left" data-val="' + r.total_shares + '">' + fmt4(r.total_shares) + '</td>' +
+            '<td data-val="' + r.portfolio_val + '">' + fmt$(r.portfolio_val) + '</td>' +
+            '<td class="grp-left" data-val="' + r.breakeven_sh + '">' + fmt4(r.breakeven_sh) + '</td>' +
+            '<td data-val="' + r.shares_deficit + '" class="' + defCls + '">' + fmt4(r.shares_deficit) + '</td>' +
+            '</tr>';
+    }
+
+    /* ── Table sort ── */
+
+    var sortInitialized = false;
+
+    function initSort() {
+        var tbl     = document.getElementById('ne-tbl');
+        var sortCol = -1, sortAsc = true;
+        tbl.querySelectorAll('thead th[data-col]').forEach(function (th) {
+            th.addEventListener('click', function () {
+                var col = parseInt(th.dataset.col, 10);
+                sortAsc = (sortCol === col) ? !sortAsc : true;
+                sortCol = col;
+                tbl.querySelectorAll('thead th[data-col]').forEach(function (h) { h.dataset.arrow = ''; });
+                th.dataset.arrow = sortAsc ? '\u25b2' : '\u25bc';
+                var tbody = tbl.querySelector('tbody');
+                var rows  = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function (a, b) {
+                    var aCell = a.cells[col], bCell = b.cells[col];
+                    var aV = (aCell.dataset.val != null && aCell.dataset.val !== '')
+                             ? aCell.dataset.val : aCell.textContent.trim();
+                    var bV = (bCell.dataset.val != null && bCell.dataset.val !== '')
+                             ? bCell.dataset.val : bCell.textContent.trim();
+                    var aN = parseFloat(aV), bN = parseFloat(bV);
+                    if (!isNaN(aN) && !isNaN(bN)) return sortAsc ? aN - bN : bN - aN;
+                    return sortAsc ? aV.localeCompare(bV) : bV.localeCompare(aV);
+                });
+                rows.forEach(function (r) { tbody.appendChild(r); });
+            });
+        });
+    }
+
+    /* ── Main fetch ── */
+
+    window.runBacktest = function () {
+        var sym    = document.getElementById('ne-ticker').value.trim().toUpperCase();
+        var amount = document.getElementById('ne-amount').value.trim();
+        var start  = document.getElementById('ne-start').value;
+        var end    = document.getElementById('ne-end').value;
+        var reinv  = slider.value;
+
+        /* Reset UI */
+        document.getElementById('ne-spinner').style.display    = 'flex';
+        document.getElementById('ne-error').style.display      = 'none';
+        document.getElementById('ne-warning').style.display    = 'none';
+        document.getElementById('ne-summary').style.display    = 'none';
+        document.getElementById('ne-chart-wrap').style.display = 'none';
+        document.getElementById('ne-table-wrap').style.display = 'none';
+        document.getElementById('ne-run-btn').disabled         = true;
+
+        var params = new URLSearchParams({
+            ticker: sym, amount: amount, start: start, end: end, reinvest: reinv
+        });
+
+        fetch('/nav_erosion/data?' + params.toString())
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                document.getElementById('ne-spinner').style.display  = 'none';
+                document.getElementById('ne-run-btn').disabled       = false;
+
+                if (data.error) {
+                    var errEl = document.getElementById('ne-error');
+                    errEl.textContent = data.error;
+                    errEl.style.display = '';
+                    return;
+                }
+
+                /* Warning (ETF doesn't go back as far as requested) */
+                if (data.warning) {
+                    document.getElementById('ne-warning-text').textContent = data.warning;
+                    document.getElementById('ne-warning').style.display = '';
+                }
+
+                /* Summary strip */
+                var s = data.summary || {};
+                var erosionHtml = s.has_erosion
+                    ? '<span style="color:#e05555;font-weight:700">Yes</span>'
+                    : '<span style="color:#00c853;font-weight:700">No</span>';
+                var deficitSign = (s.final_deficit > 0) ? '' : '';
+                var deficitColor = (s.final_deficit > 0) ? '#e05555' : '#00c853';
+                var deficitLabel = (s.final_deficit > 0) ? 'Final Shares Deficit' : 'Final Shares Surplus';
+                var pctColor = s.price_chg_pct < 0 ? '#e05555' : '#00c853';
+
+                var strip = document.getElementById('ne-summary');
+                strip.innerHTML =
+                    statTile('Total Distributions', fmt$(s.total_dist || 0), '#7ecfff') +
+                    statTile('Shares Purchased', parseFloat((s.total_shares_bought || 0).toFixed(4)).toLocaleString(), '#7ecfff') +
+                    statTile('Total Reinvested',    fmt$(s.total_reinvested || 0), '#7ecfff') +
+                    statTile('Final Portfolio Value', fmt$(s.final_value || 0), '#00e89a') +
+                    statTile('Price Change',   fmtPct(s.price_chg_pct || 0), pctColor) +
+                    '<div style="background:#111124;border:1px solid #2a2a3e;border-radius:6px;' +
+                        'padding:0.5rem 1.1rem;text-align:center;min-width:130px">' +
+                        '<div style="font-size:1.3rem;font-weight:700">' + erosionHtml + '</div>' +
+                        '<div style="font-size:0.72rem;color:#aaa;margin-top:2px">NAV Erosion</div>' +
+                    '</div>' +
+                    statTile(deficitLabel, parseFloat((s.final_deficit || 0).toFixed(4)).toLocaleString(), deficitColor);
+                strip.style.display = 'flex';
+
+                /* Table */
+                document.getElementById('ne-tbody').innerHTML =
+                    (data.rows || []).map(buildRow).join('');
+                document.getElementById('ne-table-wrap').style.display = '';
+
+                if (!sortInitialized) {
+                    initSort();
+                    sortInitialized = true;
+                }
+
+                /* Chart */
+                document.getElementById('ne-chart-wrap').style.display = '';
+                if (data.fig_json) {
+                    var fig = JSON.parse(data.fig_json);
+                    var el  = document.getElementById('ne-chart');
+                    Plotly.purge(el);
+                    Plotly.newPlot(el, fig.data, fig.layout, { responsive: true });
+                }
+            })
+            .catch(function (err) {
+                document.getElementById('ne-spinner').style.display = 'none';
+                document.getElementById('ne-run-btn').disabled      = false;
+                var errEl = document.getElementById('ne-error');
+                errEl.textContent = 'Request failed: ' + err.message;
+                errEl.style.display = '';
+            });
+    };
+
+    /* Allow Enter key in ticker input to trigger run */
+    document.getElementById('ne-ticker').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { runBacktest(); }
+    });
+
+})();
+</script>
+
+{% endblock %}

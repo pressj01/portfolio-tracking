@@ -1,0 +1,674 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 style="margin-bottom:0.3rem">NAV Erosion Portfolio Screener</h1>
+<p style="color:#aaa;margin-top:0;margin-bottom:1.2rem;font-size:0.875rem">
+  Compare up to 60 ETFs side-by-side using the same NAV erosion calculation. Each ETF can have
+  its own starting dollar amount and reinvestment percentage. Your list is saved to the database
+  and will persist between sessions.
+  <br>
+  <span style="color:#e05555;font-weight:600">NAV Erosion = Yes</span> means the ETF's share-price
+  decline has outpaced distributions — you'd need more shares than you hold to recover your principal
+  at the ending price.
+</p>
+
+<!-- ── Global date inputs ── -->
+<div style="display:flex;flex-wrap:wrap;gap:0.9rem;align-items:flex-end;margin-bottom:1.2rem;
+            background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:1rem 1.2rem">
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <label style="font-size:0.78rem;color:#aaa">Start Date</label>
+    <input id="nep-start" type="date" value="2015-01-01"
+           style="padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                  border-radius:5px;color:#e0e0e0;font-size:0.9rem">
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:0.3rem">
+    <label style="font-size:0.78rem;color:#aaa">End Date</label>
+    <input id="nep-end" type="date" value="2025-12-31"
+           style="padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                  border-radius:5px;color:#e0e0e0;font-size:0.9rem">
+  </div>
+</div>
+
+<!-- ── Saved Backtests panel ── -->
+<div style="background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:0.8rem 1.2rem;margin-bottom:1rem">
+  <div style="display:flex;flex-wrap:wrap;gap:0.6rem;align-items:center">
+    <span style="color:#aaa;font-size:0.82rem;font-weight:600;white-space:nowrap">Saved Backtests:</span>
+    <select id="nep-saved-select"
+            style="flex:1;min-width:200px;max-width:460px;padding:0.35rem 0.6rem;
+                   background:#0b0b1c;border:1px solid #3a3a5c;border-radius:4px;
+                   color:#e0e0e0;font-size:0.85rem">
+      <option value="">— no saved backtests —</option>
+    </select>
+    <button onclick="loadSaved()"
+            style="padding:0.35rem 0.85rem;background:#1a1a3a;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#ccc;font-size:0.82rem;cursor:pointer">
+      Load
+    </button>
+    <button onclick="deleteSaved()"
+            style="padding:0.35rem 0.85rem;background:#1a1a3a;border:1px solid #e05555;
+                   border-radius:5px;color:#e05555;font-size:0.82rem;cursor:pointer">
+      Delete
+    </button>
+    <span id="nep-saved-delete-msg" style="display:none;color:#00c853;font-size:0.78rem">Deleted ✓</span>
+  </div>
+</div>
+
+<!-- ── ETF input grid ── -->
+<div style="background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:1rem 1.2rem;margin-bottom:1rem">
+
+  <div style="overflow-x:auto">
+    <table id="nep-grid" style="border-collapse:collapse;width:100%;font-size:0.85rem">
+      <thead>
+        <tr style="color:#aaa;font-size:0.75rem">
+          <th style="text-align:left;padding:0.3rem 0.6rem;border-bottom:1px solid #2a2a3e;width:120px">Ticker</th>
+          <th style="text-align:right;padding:0.3rem 0.6rem;border-bottom:1px solid #2a2a3e;width:180px">Initial Investment ($)</th>
+          <th style="text-align:right;padding:0.3rem 0.6rem;border-bottom:1px solid #2a2a3e;width:160px">% of Divs to Reinvest</th>
+          <th style="padding:0.3rem 0.6rem;border-bottom:1px solid #2a2a3e;width:40px"></th>
+        </tr>
+      </thead>
+      <tbody id="nep-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- Action buttons -->
+  <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-top:0.8rem;align-items:center">
+    <button id="nep-add-btn" onclick="addRow()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#ccc;font-size:0.85rem;cursor:pointer">
+      + Add ETF
+    </button>
+    <button onclick="clearGrid()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#ccc;font-size:0.85rem;cursor:pointer">
+      Clear
+    </button>
+    <button onclick="saveList()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#ccc;font-size:0.85rem;cursor:pointer">
+      Save List
+    </button>
+    <button onclick="showSaveBtForm()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #a78bfa;
+                   border-radius:5px;color:#a78bfa;font-size:0.85rem;cursor:pointer">
+      Save Backtest&hellip;
+    </button>
+    <button onclick="runBacktest()"
+            style="padding:0.4rem 1.1rem;background:#1a1a3a;border:1px solid #7ecfff;
+                   border-radius:5px;color:#7ecfff;font-size:0.85rem;cursor:pointer;font-weight:600">
+      Run Backtest
+    </button>
+    <span id="nep-saved-msg" style="display:none;color:#00c853;font-size:0.82rem">Saved ✓</span>
+    <span id="nep-count-msg" style="color:#555;font-size:0.78rem;margin-left:auto">
+      <span id="nep-count">0</span> / 60 ETFs
+    </span>
+  </div>
+
+  <!-- Inline save-backtest form (hidden until "Save Backtest…" clicked) -->
+  <div id="nep-bt-form" style="display:none;margin-top:0.6rem;
+       flex-direction:column;gap:0.45rem;
+       background:#0d0d22;border:1px solid #a78bfa;border-radius:6px;padding:0.6rem 0.9rem">
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+      <label style="font-size:0.78rem;color:#a78bfa;white-space:nowrap">Backtest name:</label>
+      <input id="nep-bt-name" type="text" maxlength="200" placeholder="e.g. High-yield vs SPY 2020-2025"
+             style="flex:1;min-width:220px;padding:0.35rem 0.6rem;background:#0b0b1c;
+                    border:1px solid #a78bfa;border-radius:4px;color:#e0e0e0;font-size:0.85rem">
+      <button onclick="confirmSaveBt()"
+              style="padding:0.35rem 0.8rem;background:#1a1a3a;border:1px solid #a78bfa;
+                     border-radius:5px;color:#a78bfa;font-size:0.82rem;cursor:pointer;font-weight:600">
+        Save
+      </button>
+      <button onclick="cancelSaveBt()"
+              style="padding:0.35rem 0.7rem;background:none;border:1px solid #3a3a5c;
+                     border-radius:5px;color:#666;font-size:0.82rem;cursor:pointer">
+        Cancel
+      </button>
+    </div>
+    <div id="nep-bt-overwrite-row" style="display:none;flex-direction:row;align-items:center;gap:0.5rem">
+      <input id="nep-bt-overwrite" type="checkbox" checked
+             style="accent-color:#a78bfa;width:14px;height:14px;cursor:pointer">
+      <label for="nep-bt-overwrite"
+             style="font-size:0.78rem;color:#aaa;cursor:pointer">
+        Overwrite selected backtest (uncheck to save as new)
+      </label>
+    </div>
+    <span id="nep-bt-save-err" style="display:none;color:#e05555;font-size:0.78rem"></span>
+  </div>
+</div>
+
+<!-- ── Spinner ── -->
+<div id="nep-spinner" style="display:none;flex-direction:column;align-items:center;
+                              justify-content:center;padding:4rem 0;gap:1rem">
+  <div style="width:52px;height:52px;border:5px solid #2a2a3e;border-top-color:#7ecfff;
+              border-radius:50%;animation:nep-spin 0.75s linear infinite"></div>
+  <p style="color:#aaa;margin:0;font-size:0.95rem">Fetching price data &amp; calculating&hellip;</p>
+</div>
+<style>@keyframes nep-spin { to { transform: rotate(360deg); } }</style>
+
+<!-- ── Error div ── -->
+<div id="nep-error" style="display:none" class="flash error"></div>
+
+<!-- ── Results table ── -->
+<div id="nep-results" style="display:none;margin-top:0.6rem">
+
+  <style>
+  .nep-tbl-wrap {
+      max-height: 600px;
+      overflow: auto;
+      border: 1px solid #2a2a3e;
+      border-radius: 6px;
+  }
+  .nep-tbl {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      font-size: 0.82rem;
+  }
+  .nep-tbl th, .nep-tbl td {
+      padding: 0.38rem 0.75rem;
+      text-align: right;
+      border-bottom: 1px solid #1e1e38;
+      background: #111124;
+      white-space: nowrap;
+  }
+  .nep-tbl th:first-child, .nep-tbl td:first-child { text-align: left; }
+  .nep-tbl thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #0b0b1c;
+      border-bottom: 2px solid #3a3a5c;
+      cursor: pointer;
+      user-select: none;
+      color: #ccc;
+      font-size: 0.78rem;
+  }
+  .nep-tbl thead th:hover { background: #14143a; }
+  .nep-tbl thead th::after {
+      content: attr(data-arrow);
+      margin-left: 4px;
+      font-size: 0.65rem;
+      color: #7ecfff;
+  }
+  .nep-tbl tfoot td {
+      background: #0d0d22;
+      border-top: 2px solid #3a3a5c;
+      font-weight: 700;
+      color: #e0e0e0;
+      position: sticky;
+      bottom: 0;
+  }
+  .nep-tbl tbody tr:hover td { background: #1a1a3a !important; }
+  .nep-pos { color: #00c853; }
+  .nep-neg { color: #e05555; }
+  .nep-bold { font-weight: 700; }
+  </style>
+
+  <h2 style="margin-top:0;margin-bottom:0.7rem;font-size:1rem;color:#ccc">Results</h2>
+
+  <!-- ── Summary strip ── -->
+  <div id="nep-summary" style="display:flex;flex-wrap:wrap;gap:0.7rem;margin-bottom:1.1rem"></div>
+
+  <h3 style="margin:0 0 0.4rem;font-size:0.85rem;color:#666;font-weight:400">
+    Detail &mdash; click any header to sort
+  </h3>
+
+  <div class="nep-tbl-wrap">
+    <table class="nep-tbl" id="nep-tbl">
+      <thead>
+        <tr>
+          <th data-col="0" data-arrow="">Ticker</th>
+          <th data-col="1" data-arrow="">Amount</th>
+          <th data-col="2" data-arrow="">Reinvest %</th>
+          <th data-col="3" data-arrow="">Start Price</th>
+          <th data-col="4" data-arrow="">End Price</th>
+          <th data-col="5" data-arrow="">Price &Delta;%</th>
+          <th data-col="6" data-arrow="">Total Distributions</th>
+          <th data-col="7" data-arrow="">Total Reinvested</th>
+          <th data-col="8" data-arrow="">Final Value</th>
+          <th data-col="9" data-arrow="">Gain/Loss $</th>
+          <th data-col="10" data-arrow="">Gain/Loss %</th>
+          <th data-col="11" data-arrow="">NAV Erosion</th>
+          <th data-col="12" data-arrow="">Shares Deficit</th>
+          <th data-col="13" data-arrow="">Note</th>
+        </tr>
+      </thead>
+      <tbody id="nep-tbl-body"></tbody>
+      <tfoot>
+        <tr id="nep-footer">
+          <td>TOTAL</td>
+          <td id="ft-amount"></td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td id="ft-dist"></td>
+          <td id="ft-reinvested"></td>
+          <td id="ft-final"></td>
+          <td id="ft-gl"></td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+
+    var MAX_ROWS = 60;
+
+    /* ── Helpers ── */
+    function fmt$(v) {
+        return '$' + parseFloat(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+    function fmtPct(v) {
+        return (v >= 0 ? '+' : '') + parseFloat(v).toFixed(2) + '%';
+    }
+    function statTile(label, value, color, sub) {
+        return '<div style="background:#111124;border:1px solid #2a2a3e;border-radius:6px;' +
+               'padding:0.55rem 1.1rem;text-align:center;min-width:130px;flex:1 1 130px">' +
+               '<div style="font-size:1.25rem;font-weight:700;color:' + color + '">' + value + '</div>' +
+               '<div style="font-size:0.72rem;color:#aaa;margin-top:2px">' + label + '</div>' +
+               (sub ? '<div style="font-size:0.68rem;color:#555;margin-top:1px">' + sub + '</div>' : '') +
+               '</div>';
+    }
+    function updateCount() {
+        var n = document.getElementById('nep-tbody').rows.length;
+        document.getElementById('nep-count').textContent = n;
+        document.getElementById('nep-add-btn').disabled = (n >= MAX_ROWS);
+    }
+
+    /* ── Add row ── */
+    window.addRow = function (ticker, amount, reinvest) {
+        var tbody = document.getElementById('nep-tbody');
+        if (tbody.rows.length >= MAX_ROWS) return;
+
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td style="padding:0.3rem 0.4rem">' +
+              '<input type="text" maxlength="10" placeholder="e.g. JEPI" value="' + (ticker || '') + '"' +
+              ' style="width:90px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #3a3a5c;' +
+              'border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-transform:uppercase"' +
+              ' oninput="this.value=this.value.toUpperCase()">' +
+            '</td>' +
+            '<td style="padding:0.3rem 0.4rem">' +
+              '<input type="number" min="1" step="100" placeholder="e.g. 10000" value="' + (amount || '') + '"' +
+              ' style="width:120px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #3a3a5c;' +
+              'border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-align:right">' +
+            '</td>' +
+            '<td style="padding:0.3rem 0.4rem">' +
+              '<input type="number" min="0" max="100" step="1" placeholder="0 = cash, 100 = full DRIP" value="' + (reinvest !== undefined ? reinvest : '') + '"' +
+              ' style="width:220px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #3a3a5c;' +
+              'border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-align:right">' +
+            '</td>' +
+            '<td style="padding:0.3rem 0.4rem;text-align:center">' +
+              '<button onclick="this.closest(\'tr\').remove();updateCount();" title="Remove"' +
+              ' style="background:none;border:none;color:#e05555;font-size:1rem;cursor:pointer;padding:0 0.3rem">&#10005;</button>' +
+            '</td>';
+        tbody.appendChild(tr);
+        updateCount();
+    };
+
+    /* ── Clear grid ── */
+    window.clearGrid = function () {
+        document.getElementById('nep-tbody').innerHTML = '';
+        updateCount();
+        addRow();
+    };
+
+    /* ── Collect rows ── */
+    function collectRows() {
+        var rows = [];
+        document.getElementById('nep-tbody').querySelectorAll('tr').forEach(function (tr) {
+            var inputs = tr.querySelectorAll('input');
+            rows.push({
+                ticker:       inputs[0].value.trim().toUpperCase(),
+                amount:       parseFloat(inputs[1].value) || 0,
+                reinvest_pct: parseFloat(inputs[2].value) || 0,
+            });
+        });
+        return rows;
+    }
+
+    /* ── Save list ── */
+    window.saveList = function () {
+        var rows = collectRows();
+        return fetch('/nav_erosion_portfolio/list', {
+            method:  'POST',
+            headers: {'Content-Type': 'application/json'},
+            body:    JSON.stringify({rows: rows}),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.error) {
+                var e = document.getElementById('nep-error');
+                e.textContent = d.error;
+                e.style.display = '';
+                return false;
+            }
+            var msg = document.getElementById('nep-saved-msg');
+            msg.style.display = '';
+            setTimeout(function () { msg.style.display = 'none'; }, 2500);
+            return true;
+        });
+    };
+
+    /* ── Saved Backtests: populate dropdown ── */
+    function loadSavedList() {
+        return fetch('/nav_erosion_portfolio/saved')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                var sel = document.getElementById('nep-saved-select');
+                sel.innerHTML = '<option value="">— no saved backtests —</option>';
+                (d.saved || []).forEach(function (s) {
+                    var opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = s.name + '  (' + (s.start_date || '?') + ' → ' + (s.end_date || '?') + ')  [' + s.created_at + ']';
+                    sel.appendChild(opt);
+                });
+            });
+    }
+
+    /* ── Load selected saved backtest ── */
+    window.loadSaved = function () {
+        var sel = document.getElementById('nep-saved-select');
+        var id  = sel.value;
+        if (!id) return;
+        fetch('/nav_erosion_portfolio/saved/' + id)
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.error) { alert(d.error); return; }
+                // Populate dates
+                if (d.start) document.getElementById('nep-start').value = d.start;
+                if (d.end)   document.getElementById('nep-end').value   = d.end;
+                // Replace grid rows
+                document.getElementById('nep-tbody').innerHTML = '';
+                (d.rows || []).forEach(function (r) {
+                    addRow(r.ticker, r.amount, r.reinvest_pct);
+                });
+                if (!d.rows || d.rows.length === 0) addRow();
+                updateCount();
+                // Hide results from previous run
+                document.getElementById('nep-results').style.display = 'none';
+            })
+            .catch(function (err) { alert('Load failed: ' + err.message); });
+    };
+
+    /* ── Delete selected saved backtest ── */
+    window.deleteSaved = function () {
+        var sel = document.getElementById('nep-saved-select');
+        var id  = sel.value;
+        if (!id) return;
+        var name = sel.options[sel.selectedIndex].textContent;
+        if (!confirm('Delete saved backtest "' + name.split('  (')[0] + '"?')) return;
+        fetch('/nav_erosion_portfolio/saved/' + id, {method: 'DELETE'})
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.error) { alert(d.error); return; }
+                var msg = document.getElementById('nep-saved-delete-msg');
+                msg.style.display = '';
+                setTimeout(function () { msg.style.display = 'none'; }, 2000);
+                loadSavedList();
+            });
+    };
+
+    /* ── Save Backtest inline form ── */
+    window.showSaveBtForm = function () {
+        var sel      = document.getElementById('nep-saved-select');
+        var selId    = sel.value;
+        var selName  = selId ? sel.options[sel.selectedIndex].textContent.split('  (')[0] : '';
+        var form     = document.getElementById('nep-bt-form');
+        var nameInp  = document.getElementById('nep-bt-name');
+        var overEl   = document.getElementById('nep-bt-overwrite-row');
+        var overChk  = document.getElementById('nep-bt-overwrite');
+
+        // Pre-fill name from selected backtest
+        nameInp.value = selName;
+
+        // Show/hide overwrite option depending on whether one is selected
+        if (selId) {
+            overEl.style.display = 'flex';
+            overChk.checked = true;
+        } else {
+            overEl.style.display = 'none';
+            overChk.checked = false;
+        }
+
+        document.getElementById('nep-bt-save-err').style.display = 'none';
+        form.style.display = 'flex';
+        nameInp.focus();
+        nameInp.select();
+    };
+    window.cancelSaveBt = function () {
+        document.getElementById('nep-bt-form').style.display = 'none';
+        document.getElementById('nep-bt-name').value = '';
+    };
+    window.confirmSaveBt = function () {
+        var name     = document.getElementById('nep-bt-name').value.trim();
+        var errEl    = document.getElementById('nep-bt-save-err');
+        var overChk  = document.getElementById('nep-bt-overwrite');
+        var sel      = document.getElementById('nep-saved-select');
+        var selId    = sel.value;
+        var overwrite = overChk.checked && !!selId;
+
+        if (!name) {
+            errEl.textContent = 'Please enter a name.';
+            errEl.style.display = '';
+            return;
+        }
+        var rows  = collectRows();
+        var start = document.getElementById('nep-start').value;
+        var end   = document.getElementById('nep-end').value;
+        var payload = JSON.stringify({name: name, start: start, end: end, rows: rows});
+
+        var url    = overwrite ? '/nav_erosion_portfolio/saved/' + selId : '/nav_erosion_portfolio/saved';
+        var method = overwrite ? 'PUT' : 'POST';
+
+        fetch(url, {method: method, headers: {'Content-Type': 'application/json'}, body: payload})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.error) {
+                errEl.textContent = d.error;
+                errEl.style.display = '';
+                return;
+            }
+            var savedId = overwrite ? parseInt(selId) : d.id;
+            cancelSaveBt();
+            loadSavedList().then(function () {
+                // Auto-select the saved/updated backtest
+                var s = document.getElementById('nep-saved-select');
+                for (var i = 0; i < s.options.length; i++) {
+                    if (s.options[i].value == savedId) { s.selectedIndex = i; break; }
+                }
+            });
+        })
+        .catch(function (err) {
+            errEl.textContent = 'Save failed: ' + err.message;
+            errEl.style.display = '';
+        });
+    };
+
+    /* ── Sort ── */
+    var sortCol = -1, sortAsc = true;
+    function initSort() {
+        var tbl = document.getElementById('nep-tbl');
+        tbl.querySelectorAll('thead th[data-col]').forEach(function (th) {
+            th.addEventListener('click', function () {
+                var col = parseInt(th.dataset.col, 10);
+                sortAsc = (sortCol === col) ? !sortAsc : true;
+                sortCol = col;
+                tbl.querySelectorAll('thead th[data-col]').forEach(function (h) { h.dataset.arrow = ''; });
+                th.dataset.arrow = sortAsc ? '\u25b2' : '\u25bc';
+                var tbody = tbl.querySelector('tbody');
+                var rows  = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function (a, b) {
+                    var aCell = a.cells[col], bCell = b.cells[col];
+                    var aV = (aCell.dataset.val != null && aCell.dataset.val !== '')
+                             ? aCell.dataset.val : aCell.textContent.trim();
+                    var bV = (bCell.dataset.val != null && bCell.dataset.val !== '')
+                             ? bCell.dataset.val : bCell.textContent.trim();
+                    var aN = parseFloat(aV), bN = parseFloat(bV);
+                    if (!isNaN(aN) && !isNaN(bN)) return sortAsc ? aN - bN : bN - aN;
+                    return sortAsc ? aV.localeCompare(bV) : bV.localeCompare(aV);
+                });
+                rows.forEach(function (r) { tbody.appendChild(r); });
+            });
+        });
+    }
+
+    /* ── Build result row ── */
+    function buildResultRow(r) {
+        if (r.error && !r.start_price) {
+            // Error row — no calculation data
+            return '<tr>' +
+                '<td class="nep-bold" data-val="' + r.ticker + '">' + r.ticker + '</td>' +
+                '<td data-val="' + (r.amount||0) + '">' + fmt$(r.amount||0) + '</td>' +
+                '<td data-val="' + (r.reinvest_pct||0) + '">' + (r.reinvest_pct||0) + '%</td>' +
+                '<td colspan="10" style="text-align:left;color:#e05555">' + r.error + '</td>' +
+                '<td></td>' +
+                '</tr>';
+        }
+
+        var pctCls = r.price_delta_pct < 0 ? 'nep-neg' : (r.price_delta_pct > 0 ? 'nep-pos' : '');
+        var glCls  = r.gain_loss_dollar < 0 ? 'nep-neg' : 'nep-pos';
+        var glPCls = r.gain_loss_pct    < 0 ? 'nep-neg' : 'nep-pos';
+        var erosionHtml = r.has_erosion
+            ? '<span class="nep-neg" style="font-weight:700">Yes</span>'
+            : '<span class="nep-pos" style="font-weight:700">No</span>';
+        var defCls = r.final_deficit > 0 ? 'nep-neg' : 'nep-pos';
+        var note = '';
+        if (r.warning) {
+            note = '<span title="' + r.warning.replace(/"/g, '&quot;') + '" style="cursor:help">&#9888; ' +
+                   r.warning.substring(0, 40) + (r.warning.length > 40 ? '&hellip;' : '') + '</span>';
+        } else {
+            note = '<span style="color:#555">&mdash;</span>';
+        }
+
+        return '<tr>' +
+            '<td class="nep-bold" data-val="' + r.ticker + '">' + r.ticker + '</td>' +
+            '<td data-val="' + r.amount + '">' + fmt$(r.amount) + '</td>' +
+            '<td data-val="' + r.reinvest_pct + '">' + r.reinvest_pct + '%</td>' +
+            '<td data-val="' + r.start_price + '">' + fmt$(r.start_price) + '</td>' +
+            '<td data-val="' + r.end_price + '">' + fmt$(r.end_price) + '</td>' +
+            '<td class="' + pctCls + '" data-val="' + r.price_delta_pct + '">' + fmtPct(r.price_delta_pct) + '</td>' +
+            '<td data-val="' + r.total_dist + '">' + fmt$(r.total_dist) + '</td>' +
+            '<td data-val="' + r.total_reinvested + '">' + fmt$(r.total_reinvested) + '</td>' +
+            '<td data-val="' + r.final_value + '">' + fmt$(r.final_value) + '</td>' +
+            '<td class="' + glCls + '" data-val="' + r.gain_loss_dollar + '">' + fmt$(r.gain_loss_dollar) + '</td>' +
+            '<td class="' + glPCls + '" data-val="' + r.gain_loss_pct + '">' + fmtPct(r.gain_loss_pct) + '</td>' +
+            '<td data-val="' + (r.has_erosion ? 1 : 0) + '">' + erosionHtml + '</td>' +
+            '<td class="' + defCls + '" data-val="' + r.final_deficit + '">' + parseFloat(r.final_deficit).toFixed(4) + '</td>' +
+            '<td style="text-align:left;font-size:0.78rem;color:#aaa">' + note + '</td>' +
+            '</tr>';
+    }
+
+    /* ── Run backtest ── */
+    window.runBacktest = function () {
+        var start = document.getElementById('nep-start').value;
+        var end   = document.getElementById('nep-end').value;
+
+        document.getElementById('nep-error').style.display   = 'none';
+        document.getElementById('nep-results').style.display = 'none';
+        document.getElementById('nep-spinner').style.display = 'flex';
+
+        saveList().then(function (ok) {
+            var rows = collectRows();
+            fetch('/nav_erosion_portfolio/data', {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({start: start, end: end, rows: rows}),
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                document.getElementById('nep-spinner').style.display = 'none';
+
+                if (data.error) {
+                    var e = document.getElementById('nep-error');
+                    e.textContent = data.error;
+                    e.style.display = '';
+                    return;
+                }
+
+                var results = data.results || [];
+                document.getElementById('nep-tbl-body').innerHTML = results.map(buildResultRow).join('');
+
+                // Footer totals + summary — only count rows with valid calc data
+                var totAmount = 0, totDist = 0, totReinv = 0, totFinal = 0, totGL = 0;
+                var erosionCount = 0, validCount = 0, errorCount = 0;
+                var best = null, worst = null;
+                results.forEach(function (r) {
+                    if (r.error && !r.start_price) {
+                        errorCount++;
+                        return;
+                    }
+                    validCount++;
+                    totAmount += r.amount             || 0;
+                    totDist   += r.total_dist         || 0;
+                    totReinv  += r.total_reinvested   || 0;
+                    totFinal  += r.final_value        || 0;
+                    totGL     += r.gain_loss_dollar   || 0;
+                    if (r.has_erosion) erosionCount++;
+                    if (best  === null || r.gain_loss_pct > best.gain_loss_pct)  best  = r;
+                    if (worst === null || r.gain_loss_pct < worst.gain_loss_pct) worst = r;
+                });
+                document.getElementById('ft-amount').textContent     = fmt$(totAmount);
+                document.getElementById('ft-dist').textContent       = fmt$(totDist);
+                document.getElementById('ft-reinvested').textContent = fmt$(totReinv);
+                document.getElementById('ft-final').textContent      = fmt$(totFinal);
+                var glEl = document.getElementById('ft-gl');
+                glEl.textContent = fmt$(totGL);
+                glEl.className   = totGL >= 0 ? 'nep-pos' : 'nep-neg';
+
+                // Build summary strip
+                var totGLPct  = totAmount > 0 ? totGL / totAmount * 100 : 0;
+                var glColor   = totGL  >= 0 ? '#00c853' : '#e05555';
+                var glPColor  = totGLPct >= 0 ? '#00c853' : '#e05555';
+                var erosionColor = erosionCount > 0 ? '#e05555' : '#00c853';
+                var bestHtml  = best  ? '<span style="color:#00c853;font-weight:700">' + best.ticker  + '</span>' : '—';
+                var worstHtml = worst ? '<span style="color:#e05555;font-weight:700">' + worst.ticker + '</span>' : '—';
+                var strip = document.getElementById('nep-summary');
+                strip.innerHTML =
+                    statTile('Total Invested',          fmt$(totAmount), '#7ecfff') +
+                    statTile('Total Final Value',        fmt$(totFinal),  '#7ecfff') +
+                    statTile('Total Gain / Loss',        fmt$(totGL),     glColor) +
+                    statTile('Portfolio Return',         fmtPct(totGLPct), glPColor) +
+                    statTile('Total Distributions',      fmt$(totDist),   '#7ecfff') +
+                    statTile('Total Reinvested',         fmt$(totReinv),  '#7ecfff') +
+                    statTile('NAV Erosion',              erosionCount + ' of ' + validCount, erosionColor, 'funds showing erosion') +
+                    statTile('Best Performer',           bestHtml,  '#00c853', best  ? fmtPct(best.gain_loss_pct)  : '') +
+                    statTile('Worst Performer',          worstHtml, '#e05555', worst ? fmtPct(worst.gain_loss_pct) : '') +
+                    (errorCount > 0 ? statTile('No Data', errorCount + ' ticker' + (errorCount > 1 ? 's' : ''), '#f9a825', 'check Note column') : '');
+
+                document.getElementById('nep-results').style.display = '';
+                initSort();
+            })
+            .catch(function (err) {
+                document.getElementById('nep-spinner').style.display = 'none';
+                var e = document.getElementById('nep-error');
+                e.textContent = 'Request failed: ' + err.message;
+                e.style.display = '';
+            });
+        });
+    };
+
+    /* ── On load: populate saved backtest names; grid starts empty ── */
+    document.addEventListener('DOMContentLoaded', function () {
+        // Populate the saved backtests dropdown
+        loadSavedList();
+
+        // Allow Enter key in the name field to submit
+        document.getElementById('nep-bt-name').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') confirmSaveBt();
+            if (e.key === 'Escape') cancelSaveBt();
+        });
+    });
+
+})();
+</script>
+
+{% endblock %}

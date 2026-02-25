@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.4rem">
+  <h1 style="margin:0">Buy / Sell Signal Dashboard</h1>
+  <button id="bss-refresh-btn" onclick="loadData()"
+          style="display:none;padding:0.35rem 0.9rem;background:#1a1a3a;border:1px solid #7ecfff;
+                 border-radius:5px;color:#7ecfff;font-size:0.85rem;cursor:pointer;
+                 align-items:center;gap:0.4rem">
+    <span id="bss-refresh-icon" style="display:inline-block;font-size:1rem">&#8635;</span>
+    Refresh
+  </button>
+  <span id="bss-timestamp" style="display:none;font-size:0.78rem;color:#666">Updated: —</span>
+</div>
+<p style="color:#aaa;margin-top:0;margin-bottom:1rem;font-size:0.875rem">
+  <span style="color:#00c853;font-weight:600">&#9632; BUY</span> &nbsp;
+  <span style="color:#d50000;font-weight:600">&#9632; SELL</span> &nbsp;
+  <span style="color:#f9a825;font-weight:600">&#9632; NEUTRAL</span>
+  &nbsp;&middot;&nbsp; Overall signal = majority vote across AO, RSI, MACD, SMA50, SMA200
+</p>
+
+<!-- Summary count tiles (hidden until data loads) -->
+<div id="counts-strip" style="display:none;flex-wrap:wrap;gap:1.2rem;margin-bottom:1.2rem">
+  <div style="background:#0d2a1a;border:1px solid #00c853;border-radius:6px;padding:0.5rem 1.2rem;text-align:center">
+    <div id="count-buy"     style="font-size:1.6rem;font-weight:700;color:#00c853">—</div>
+    <div style="font-size:0.75rem;color:#aaa;margin-top:2px">BUY</div>
+  </div>
+  <div style="background:#2a0d0d;border:1px solid #d50000;border-radius:6px;padding:0.5rem 1.2rem;text-align:center">
+    <div id="count-sell"    style="font-size:1.6rem;font-weight:700;color:#d50000">—</div>
+    <div style="font-size:0.75rem;color:#aaa;margin-top:2px">SELL</div>
+  </div>
+  <div style="background:#2a200a;border:1px solid #f9a825;border-radius:6px;padding:0.5rem 1.2rem;text-align:center">
+    <div id="count-neutral" style="font-size:1.6rem;font-weight:700;color:#f9a825">—</div>
+    <div style="font-size:0.75rem;color:#aaa;margin-top:2px">NEUTRAL</div>
+  </div>
+  <div style="background:#111124;border:1px solid #333;border-radius:6px;padding:0.5rem 1.2rem;text-align:center">
+    <div id="count-total"   style="font-size:1.6rem;font-weight:700;color:#ccc">—</div>
+    <div style="font-size:0.75rem;color:#aaa;margin-top:2px">TOTAL</div>
+  </div>
+</div>
+
+<!-- Loading spinner -->
+<div id="bss-spinner" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6rem 0;gap:1.1rem">
+  <div style="width:52px;height:52px;border:5px solid #2a2a3e;border-top-color:#7ecfff;border-radius:50%;animation:bss-spin 0.75s linear infinite"></div>
+  <p style="color:#aaa;margin:0;font-size:0.95rem">Fetching price data &amp; calculating indicators&hellip;</p>
+</div>
+<style>@keyframes bss-spin { to { transform: rotate(360deg); } }</style>
+
+<!-- Error display -->
+<div id="bss-error" style="display:none" class="flash error"></div>
+
+<!-- Main content (hidden until data loads) -->
+<div id="bss-content" style="display:none">
+
+  <div id="treemap-chart" style="width:100%;height:720px"></div>
+
+  <style>
+  /* ── Signal table ── */
+  .sst-wrap {
+      max-height: 560px;
+      overflow: auto;
+      border: 1px solid #2a2a3e;
+      border-radius: 6px;
+      margin-top: 2rem;
+  }
+  .sst {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      font-size: 0.82rem;
+  }
+  .sst th,
+  .sst td {
+      padding: 0.4rem 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #1e1e38;
+      background: #111124;
+      white-space: nowrap;
+  }
+  .sst thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #0b0b1c;
+      border-bottom: 2px solid #3a3a5c;
+      cursor: pointer;
+      user-select: none;
+      color: #ccc;
+      font-size: 0.78rem;
+  }
+  .sst thead th:hover { background: #14143a; }
+  .sst thead th::after {
+      content: attr(data-arrow);
+      margin-left: 4px;
+      font-size: 0.65rem;
+      color: #7ecfff;
+  }
+  .col-tick {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      min-width: 76px;
+      max-width: 76px;
+      border-right: 1px solid #2a2a3e;
+      background: #111124;
+  }
+  .col-name {
+      position: sticky;
+      left: 76px;
+      z-index: 2;
+      min-width: 220px;
+      max-width: 220px;
+      border-right: 1px solid #2a2a3e;
+      background: #111124;
+      box-shadow: 5px 0 12px rgba(0,0,0,0.6);
+  }
+  thead .col-tick,
+  thead .col-name {
+      z-index: 4;
+      background: #0b0b1c;
+  }
+  .sst tbody tr:hover td { background: #1a1a3a !important; }
+  .sig {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 3px;
+      font-weight: 700;
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+  }
+  .sig-BUY     { background: #00c853; color: #000; }
+  .sig-SELL    { background: #d50000; color: #fff; }
+  .sig-NEUTRAL { background: #f9a825; color: #000; }
+  .ao-up   { color: #00c853; font-weight: 600; }
+  .ao-down { color: #e05555; font-weight: 600; }
+  .ao-flat { color: #999; }
+  .pct-up   { color: #00c853; }
+  .pct-down { color: #e05555; }
+  .src-p { color: #00c9a7; font-size: 0.76rem; }
+  .src-s { color: #f9a825; font-size: 0.76rem; }
+  .src-w { color: #7ecfff; font-size: 0.76rem; }
+  .ind-val { color: #888; font-size: 0.75rem; margin-left: 4px; }
+  .grp-left { border-left: 1px solid #2a2a3e; }
+  </style>
+
+  <h2 style="margin-top:0;margin-bottom:0.4rem;font-size:1rem;color:#ccc">
+    Signal Detail Table
+    <span style="font-weight:400;font-size:0.75rem;color:#666">&nbsp;&mdash; click any column header to sort</span>
+  </h2>
+
+  <div class="sst-wrap">
+    <table class="sst" id="signal-tbl">
+      <thead>
+        <tr>
+          <th class="col-tick" data-col="0"  data-arrow="">Ticker</th>
+          <th class="col-name" data-col="1"  data-arrow="">Name</th>
+          <th data-col="2"  data-arrow="">Type</th>
+          <th data-col="3"  data-arrow="">Source</th>
+          <th class="grp-left" data-col="4"  data-arrow="">Overall</th>
+          <th class="grp-left" data-col="5"  data-arrow="">AO</th>
+          <th data-col="6"  data-arrow="">AO Value</th>
+          <th data-col="7"  data-arrow="">AO Dir</th>
+          <th class="grp-left" data-col="8"  data-arrow="">RSI</th>
+          <th class="grp-left" data-col="9"  data-arrow="">MACD</th>
+          <th class="grp-left" data-col="10" data-arrow="">SMA 50</th>
+          <th class="grp-left" data-col="11" data-arrow="">SMA 200</th>
+          <th class="grp-left" data-col="12" data-arrow="">Sharpe</th>
+          <th data-col="13" data-arrow="">Sortino</th>
+          <th class="grp-left" data-col="14" data-arrow="">Portfolio $</th>
+        </tr>
+      </thead>
+      <tbody id="signal-tbody"></tbody>
+    </table>
+  </div>
+
+</div><!-- #bss-content -->
+
+<script>
+(function () {
+
+    /* ── Cell-rendering helpers ── */
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.textContent = String(s == null ? '' : s);
+        return d.innerHTML;
+    }
+
+    function sig(s) {
+        return '<span class="sig sig-' + s + '">' + s + '</span>';
+    }
+
+    function aoDir(d) {
+        if (d === 'Rising')  return '<span class="ao-up">Rising &#8593;</span>';
+        if (d === 'Falling') return '<span class="ao-down">Falling &#8595;</span>';
+        if (d === 'Flat')    return '<span class="ao-flat">Flat &#8594;</span>';
+        return '<span class="ao-flat">&mdash;</span>';
+    }
+
+    function pctCls(p) {
+        if (p && p[0] === '+') return ' pct-up';
+        if (p && p[0] === '-') return ' pct-down';
+        return '';
+    }
+
+    function buildRow(r) {
+        var desc     = r.desc || '';
+        var descDisp = desc.length > 34 ? desc.slice(0, 34) + '\u2026' : desc;
+        return '<tr>' +
+            '<td class="col-tick" data-val="' + esc(r.ticker) + '"><strong>' + esc(r.ticker) + '</strong></td>' +
+            '<td class="col-name" data-val="' + esc(desc) + '" title="' + esc(desc) + '">' + esc(descDisp) + '</td>' +
+            '<td data-val="' + esc(r.ctype) + '">' + esc(r.ctype) + '</td>' +
+            '<td data-val="' + esc(r.source) + '">' + (r.source === 'Portfolio'
+                ? '<span class="src-p">Portfolio</span>'
+                : (r.source === 'Sectors'
+                    ? '<span class="src-s">Sectors</span>'
+                    : '<span class="src-w">Watchlist</span>')) + '</td>' +
+            '<td class="grp-left" data-val="' + r.sig_order + '">'          + sig(r.signal)   + '</td>' +
+            '<td class="grp-left" data-val="' + r.ao_sig_ord + '">'         + sig(r.ao_sig)   + '</td>' +
+            '<td data-val="' + r.ao_val_num  + '">' + esc(r.ao_value)  + '</td>' +
+            '<td data-val="' + esc(r.ao_dir) + '">' + aoDir(r.ao_dir)  + '</td>' +
+            '<td class="grp-left" data-val="' + r.rsi_sig_ord + '">'        + sig(r.rsi_sig)  +
+                ' <span class="ind-val">' + esc(r.rsi_value) + '</span></td>' +
+            '<td class="grp-left" data-val="' + r.macd_sig_ord + '">'       + sig(r.macd_sig) + '</td>' +
+            '<td class="grp-left" data-val="' + r.sma50_sig_ord + '">'      + sig(r.sma50_sig)  +
+                ' <span class="ind-val' + pctCls(r.sma50_pct)  + '">' + esc(r.sma50_pct)  + '</span></td>' +
+            '<td class="grp-left" data-val="' + r.sma200_sig_ord + '">'     + sig(r.sma200_sig) +
+                ' <span class="ind-val' + pctCls(r.sma200_pct) + '">' + esc(r.sma200_pct) + '</span></td>' +
+            '<td class="grp-left" data-val="' + r.sharpe_val_num + '">' + esc(r.sharpe_val) + '</td>' +
+            '<td data-val="' + r.sortino_val_num + '">' + esc(r.sortino_val) + '</td>' +
+            '<td class="grp-left" data-val="' + r.pv_num + '">' + esc(r.pv_fmt) + '</td>' +
+            '</tr>';
+    }
+
+    /* ── Sort ── */
+
+    function initSort() {
+        var tbl     = document.getElementById('signal-tbl');
+        var sortCol = -1, sortAsc = true;
+        tbl.querySelectorAll('thead th[data-col]').forEach(function (th) {
+            th.addEventListener('click', function () {
+                var col  = parseInt(th.dataset.col, 10);
+                sortAsc  = (sortCol === col) ? !sortAsc : true;
+                sortCol  = col;
+                tbl.querySelectorAll('thead th[data-col]').forEach(function (h) { h.dataset.arrow = ''; });
+                th.dataset.arrow = sortAsc ? '\u25b2' : '\u25bc';
+                var tbody = tbl.querySelector('tbody');
+                var rows  = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function (a, b) {
+                    var aCell = a.cells[col], bCell = b.cells[col];
+                    var aV = (aCell.dataset.val != null && aCell.dataset.val !== '')
+                             ? aCell.dataset.val : aCell.textContent.trim();
+                    var bV = (bCell.dataset.val != null && bCell.dataset.val !== '')
+                             ? bCell.dataset.val : bCell.textContent.trim();
+                    var aN = parseFloat(aV), bN = parseFloat(bV);
+                    if (!isNaN(aN) && !isNaN(bN)) return sortAsc ? aN - bN : bN - aN;
+                    return sortAsc ? aV.localeCompare(bV) : bV.localeCompare(aV);
+                });
+                rows.forEach(function (r) { tbody.appendChild(r); });
+            });
+        });
+    }
+
+    /* ── Load / refresh data ── */
+
+    var sortInitialized = false;
+    var refreshIcon     = document.getElementById('bss-refresh-icon');
+    var refreshBtn      = document.getElementById('bss-refresh-btn');
+
+    function setRefreshLoading(loading) {
+        refreshBtn.disabled = loading;
+        if (loading) {
+            refreshIcon.style.animation = 'bss-spin 0.75s linear infinite';
+        } else {
+            refreshIcon.style.animation = '';
+        }
+    }
+
+    window.loadData = function () {
+        /* Reset UI to loading state */
+        document.getElementById('bss-content').style.display  = 'none';
+        document.getElementById('counts-strip').style.display = 'none';
+        document.getElementById('bss-error').style.display    = 'none';
+        document.getElementById('bss-spinner').style.display  = 'flex';
+        setRefreshLoading(true);
+
+        fetch('/buy_sell_signals/data')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                document.getElementById('bss-spinner').style.display = 'none';
+                setRefreshLoading(false);
+
+                if (data.error) {
+                    var errEl = document.getElementById('bss-error');
+                    errEl.textContent = data.error;
+                    errEl.style.display = '';
+                    return;
+                }
+
+                /* Table rows */
+                var rows = data.table_rows || [];
+                document.getElementById('signal-tbody').innerHTML =
+                    rows.map(buildRow).join('');
+
+                /* Count tiles — computed client-side from actual rows */
+                var cBuy = 0, cSell = 0, cNeut = 0;
+                rows.forEach(function(r) {
+                    if (r.signal === 'BUY') cBuy++;
+                    else if (r.signal === 'SELL') cSell++;
+                    else cNeut++;
+                });
+                document.getElementById('count-buy').textContent     = cBuy;
+                document.getElementById('count-sell').textContent    = cSell;
+                document.getElementById('count-neutral').textContent = cNeut;
+                document.getElementById('count-total').textContent   = rows.length;
+                document.getElementById('counts-strip').style.display = 'flex';
+
+                /* Show content first so Plotly can measure the container width */
+                document.getElementById('bss-content').style.display = '';
+
+                /* Treemap — rendered after container is visible */
+                if (data.fig_json) {
+                    var fig = JSON.parse(data.fig_json);
+                    Plotly.purge('treemap-chart');
+                    Plotly.newPlot('treemap-chart', fig.data, fig.layout, { responsive: true });
+                }
+
+                /* Wire up sort only once — listeners persist across refreshes */
+                if (!sortInitialized) {
+                    initSort();
+                    sortInitialized = true;
+                }
+
+                /* Show refresh button + timestamp */
+                refreshBtn.style.display = 'flex';
+                var ts = document.getElementById('bss-timestamp');
+                ts.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+                ts.style.display = '';
+            })
+            .catch(function (err) {
+                document.getElementById('bss-spinner').style.display = 'none';
+                setRefreshLoading(false);
+                var errEl = document.getElementById('bss-error');
+                errEl.textContent = 'Failed to load data: ' + err.message;
+                errEl.style.display = '';
+            });
+    };
+
+    /* Initial load */
+    loadData();
+
+})();
+</script>
+
+{% endblock %}

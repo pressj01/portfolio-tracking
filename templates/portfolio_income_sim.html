@@ -1,0 +1,1166 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  /* Widen the page for this route */
+  .container { max-width: 2100px !important; }
+</style>
+
+<h1 style="margin-bottom:0.3rem">Portfolio Income Simulator</h1>
+<p style="color:#aaa;margin-top:0;margin-bottom:1.2rem;font-size:0.875rem">
+  Model the income-generating potential of up to 60 ETFs/stocks using either real historical data or a
+  forward-looking market simulation. Distributions are fetched automatically from Yahoo Finance (last 12
+  months); use the Yield Override column for brand-new ETFs with limited history.
+  <br>
+  <span style="color:#00e89a;font-weight:600">Effective Yield on Cost</span> = cumulative distributions ÷
+  initial investment — the true income return on your dollars deployed.
+</p>
+
+<!-- ── Mode toggle ── -->
+<div style="display:flex;gap:0.6rem;align-items:center;margin-bottom:1rem">
+  <span style="color:#aaa;font-size:0.82rem;font-weight:600">Mode:</span>
+  <button id="pis-mode-hist" onclick="setMode('historical')"
+          style="padding:0.38rem 1rem;border-radius:5px;font-size:0.85rem;cursor:pointer;font-weight:600;
+                 border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff">
+    Historical Backtest
+  </button>
+  <button id="pis-mode-sim" onclick="setMode('simulate')"
+          style="padding:0.38rem 1rem;border-radius:5px;font-size:0.85rem;cursor:pointer;font-weight:600;
+                 border:1px solid #3a3a5c;background:#111124;color:#aaa">
+    Market Simulation
+  </button>
+</div>
+
+<!-- ── Settings panel ── -->
+<div style="background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:1rem 1.2rem;margin-bottom:1rem">
+
+  <!-- Historical settings -->
+  <div id="pis-hist-settings" style="display:flex;flex-wrap:wrap;gap:0.9rem;align-items:flex-end">
+    <div style="display:flex;flex-direction:column;gap:0.3rem">
+      <label style="font-size:0.78rem;color:#aaa">Start Date</label>
+      <input id="pis-start" type="date" value="2020-01-01"
+             style="padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                    border-radius:5px;color:#e0e0e0;font-size:0.9rem">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.3rem">
+      <label style="font-size:0.78rem;color:#aaa">End Date</label>
+      <input id="pis-end" type="date" value="2025-12-31"
+             style="padding:0.4rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                    border-radius:5px;color:#e0e0e0;font-size:0.9rem">
+    </div>
+  </div>
+
+  <!-- Simulation settings -->
+  <div id="pis-sim-settings" style="display:none;flex-wrap:wrap;gap:1.2rem;align-items:flex-start">
+    <div>
+      <div style="font-size:0.78rem;color:#aaa;margin-bottom:0.4rem">Market Bias</div>
+      <div style="display:flex;gap:0.5rem">
+        <button id="pis-mkt-bullish"  onclick="setMarket('bullish')"
+                style="padding:0.38rem 0.85rem;border-radius:5px;font-size:0.82rem;cursor:pointer;
+                       border:1px solid #3a3a5c;background:#111124;color:#aaa">Bullish</button>
+        <button id="pis-mkt-neutral"  onclick="setMarket('neutral')"
+                style="padding:0.38rem 0.85rem;border-radius:5px;font-size:0.82rem;cursor:pointer;
+                       border:1px solid #3a3a5c;background:#111124;color:#aaa">Neutral</button>
+        <button id="pis-mkt-bearish"  onclick="setMarket('bearish')"
+                style="padding:0.38rem 0.85rem;border-radius:5px;font-size:0.82rem;cursor:pointer;
+                       border:1px solid #3a3a5c;background:#111124;color:#aaa">Bearish</button>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:0.78rem;color:#aaa;margin-bottom:0.4rem">Duration</div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <button onclick="setDuration(12)"  style="padding:0.38rem 0.7rem;border-radius:5px;font-size:0.82rem;cursor:pointer;border:1px solid #3a3a5c;background:#111124;color:#aaa">1 yr</button>
+        <button onclick="setDuration(36)"  style="padding:0.38rem 0.7rem;border-radius:5px;font-size:0.82rem;cursor:pointer;border:1px solid #3a3a5c;background:#111124;color:#aaa">3 yr</button>
+        <button onclick="setDuration(60)"  style="padding:0.38rem 0.7rem;border-radius:5px;font-size:0.82rem;cursor:pointer;border:1px solid #3a3a5c;background:#111124;color:#aaa">5 yr</button>
+        <button onclick="setDuration(120)" style="padding:0.38rem 0.7rem;border-radius:5px;font-size:0.82rem;cursor:pointer;border:1px solid #3a3a5c;background:#111124;color:#aaa">10 yr</button>
+        <input id="pis-duration" type="number" min="1" max="600" value="36" placeholder="months"
+               style="width:80px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                      border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-align:right">
+        <span style="color:#aaa;font-size:0.8rem">months</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Saved Simulations panel ── -->
+<div style="background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:0.8rem 1.2rem;margin-bottom:1rem">
+  <div style="display:flex;flex-wrap:wrap;gap:0.6rem;align-items:center">
+    <span style="color:#aaa;font-size:0.82rem;font-weight:600;white-space:nowrap">Saved Simulations:</span>
+    <select id="pis-saved-select"
+            style="flex:1;min-width:200px;max-width:500px;padding:0.35rem 0.6rem;
+                   background:#0b0b1c;border:1px solid #3a3a5c;border-radius:4px;
+                   color:#e0e0e0;font-size:0.85rem">
+      <option value="">— no saved simulations —</option>
+    </select>
+    <button onclick="loadSaved()"
+            style="padding:0.35rem 0.85rem;background:#1a1a3a;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#ccc;font-size:0.82rem;cursor:pointer">Load</button>
+    <button onclick="openRenameSim()"
+            style="padding:0.35rem 0.85rem;background:#1a1a3a;border:1px solid #7ecfff;
+                   border-radius:5px;color:#7ecfff;font-size:0.82rem;cursor:pointer">Rename&hellip;</button>
+    <button onclick="openUpdateSim()"
+            style="padding:0.35rem 0.85rem;background:#1a1a3a;border:1px solid #f9a825;
+                   border-radius:5px;color:#f9a825;font-size:0.82rem;cursor:pointer">Update</button>
+    <button onclick="deleteSaved()"
+            style="padding:0.35rem 0.85rem;background:#1a1a3a;border:1px solid #e05555;
+                   border-radius:5px;color:#e05555;font-size:0.82rem;cursor:pointer">Delete</button>
+    <span id="pis-saved-delete-msg" style="display:none;color:#00c853;font-size:0.78rem">Deleted ✓</span>
+    <span id="pis-saved-ok-msg"     style="display:none;color:#00c853;font-size:0.78rem">Saved ✓</span>
+  </div>
+
+  <!-- Inline rename form -->
+  <div id="pis-rename-form" style="display:none;margin-top:0.6rem;flex-direction:row;
+       flex-wrap:wrap;gap:0.5rem;align-items:center;
+       background:#0d0d22;border:1px solid #7ecfff;border-radius:6px;padding:0.5rem 0.8rem">
+    <label style="font-size:0.78rem;color:#7ecfff;white-space:nowrap">New name:</label>
+    <input id="pis-rename-input" type="text" maxlength="200"
+           style="flex:1;min-width:200px;padding:0.35rem 0.6rem;background:#0b0b1c;
+                  border:1px solid #7ecfff;border-radius:4px;color:#e0e0e0;font-size:0.85rem">
+    <button onclick="confirmRenameSim()"
+            style="padding:0.35rem 0.8rem;background:#1a1a3a;border:1px solid #7ecfff;
+                   border-radius:5px;color:#7ecfff;font-size:0.82rem;cursor:pointer;font-weight:600">Save</button>
+    <button onclick="cancelRenameSim()"
+            style="padding:0.35rem 0.7rem;background:none;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#666;font-size:0.82rem;cursor:pointer">Cancel</button>
+    <span id="pis-rename-err" style="display:none;color:#e05555;font-size:0.78rem"></span>
+  </div>
+
+  <!-- Inline update confirm -->
+  <div id="pis-update-form" style="display:none;margin-top:0.6rem;flex-direction:row;
+       flex-wrap:wrap;gap:0.5rem;align-items:center;
+       background:#0d0d22;border:1px solid #f9a825;border-radius:6px;padding:0.5rem 0.8rem">
+    <span style="font-size:0.82rem;color:#f9a825">Replace <strong id="pis-update-name-lbl"></strong> with the current grid and settings?</span>
+    <button onclick="confirmUpdateSim()"
+            style="padding:0.35rem 0.8rem;background:#1a1a3a;border:1px solid #f9a825;
+                   border-radius:5px;color:#f9a825;font-size:0.82rem;cursor:pointer;font-weight:600">Confirm</button>
+    <button onclick="cancelUpdateSim()"
+            style="padding:0.35rem 0.7rem;background:none;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#666;font-size:0.82rem;cursor:pointer">Cancel</button>
+    <span id="pis-update-err" style="display:none;color:#e05555;font-size:0.78rem"></span>
+  </div>
+</div>
+
+<!-- ── ETF input grid ── -->
+<div style="background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:1rem 1.2rem;margin-bottom:1rem">
+  <div style="overflow-x:auto">
+    <table id="pis-grid" style="border-collapse:collapse;width:100%;font-size:0.85rem">
+      <tbody id="pis-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- Action buttons -->
+  <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-top:0.8rem;align-items:center">
+    <button id="pis-add-btn" onclick="addRow()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#ccc;font-size:0.85rem;cursor:pointer">+ Add ETF</button>
+    <button onclick="clearGrid()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#ccc;font-size:0.85rem;cursor:pointer">Clear</button>
+    <button onclick="openPortfolioPicker()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #00e89a;
+                   border-radius:5px;color:#00e89a;font-size:0.85rem;cursor:pointer">From Portfolio&hellip;</button>
+    <button onclick="showSaveSimForm()"
+            style="padding:0.4rem 0.9rem;background:#1a1a3a;border:1px solid #a78bfa;
+                   border-radius:5px;color:#a78bfa;font-size:0.85rem;cursor:pointer">Save Simulation&hellip;</button>
+    <button onclick="runSim()"
+            style="padding:0.4rem 1.1rem;background:#1a1a3a;border:1px solid #00e89a;
+                   border-radius:5px;color:#00e89a;font-size:0.85rem;cursor:pointer;font-weight:600">&#9654; Run</button>
+    <span id="pis-count-msg" style="color:#555;font-size:0.78rem;margin-left:auto">
+      <span id="pis-count">0</span> / 150 ETFs
+    </span>
+  </div>
+
+  <!-- Inline save-simulation form (always creates new) -->
+  <div id="pis-sim-form" style="display:none;margin-top:0.6rem;
+       flex-direction:row;flex-wrap:wrap;gap:0.5rem;align-items:center;
+       background:#0d0d22;border:1px solid #a78bfa;border-radius:6px;padding:0.5rem 0.8rem">
+    <label style="font-size:0.78rem;color:#a78bfa;white-space:nowrap">Simulation name:</label>
+    <input id="pis-sim-name" type="text" maxlength="200" placeholder="e.g. Covered call ETFs — bullish 3yr"
+           style="flex:1;min-width:220px;padding:0.35rem 0.6rem;background:#0b0b1c;
+                  border:1px solid #a78bfa;border-radius:4px;color:#e0e0e0;font-size:0.85rem">
+    <button onclick="confirmSaveSim()"
+            style="padding:0.35rem 0.8rem;background:#1a1a3a;border:1px solid #a78bfa;
+                   border-radius:5px;color:#a78bfa;font-size:0.82rem;cursor:pointer;font-weight:600">Save</button>
+    <button onclick="cancelSaveSim()"
+            style="padding:0.35rem 0.7rem;background:none;border:1px solid #3a3a5c;
+                   border-radius:5px;color:#666;font-size:0.82rem;cursor:pointer">Cancel</button>
+    <span id="pis-sim-save-err" style="display:none;color:#e05555;font-size:0.78rem"></span>
+  </div>
+</div>
+
+<!-- ── Spinner ── -->
+<div id="pis-spinner" style="display:none;flex-direction:column;align-items:center;
+                              justify-content:center;padding:4rem 0;gap:1rem">
+  <div style="width:52px;height:52px;border:5px solid #2a2a3e;border-top-color:#00e89a;
+              border-radius:50%;animation:pis-spin 0.75s linear infinite"></div>
+  <p style="color:#aaa;margin:0;font-size:0.95rem">Fetching data &amp; running simulation&hellip;</p>
+</div>
+<style>@keyframes pis-spin { to { transform: rotate(360deg); } }</style>
+
+<!-- ── Error ── -->
+<div id="pis-error" style="display:none" class="flash error"></div>
+
+<!-- ── Results ── -->
+<div id="pis-results" style="display:none;margin-top:0.6rem">
+
+  <style>
+  .pis-tbl-wrap {
+      max-height: calc(100vh - 250px);
+      min-height: 300px;
+      overflow: auto;
+      border: 1px solid #2a2a3e;
+      border-radius: 6px;
+  }
+  .pis-tbl {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      font-size: 0.82rem;
+  }
+  .pis-tbl th, .pis-tbl td {
+      padding: 0.38rem 0.75rem;
+      text-align: right;
+      border-bottom: 1px solid #1e1e38;
+      background: #111124;
+      white-space: nowrap;
+  }
+  .pis-tbl th:first-child, .pis-tbl td:first-child { text-align: left; }
+  .pis-tbl thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #0b0b1c;
+      border-bottom: 2px solid #3a3a5c;
+      cursor: pointer;
+      user-select: none;
+      color: #ccc;
+      font-size: 0.78rem;
+  }
+  .pis-tbl thead th:hover { background: #14143a; }
+  .pis-tbl thead th::after {
+      content: attr(data-arrow);
+      margin-left: 4px;
+      font-size: 0.65rem;
+      color: #00e89a;
+  }
+  .pis-tbl tfoot td {
+      background: #0d0d22;
+      border-top: 2px solid #3a3a5c;
+      font-weight: 700;
+      color: #e0e0e0;
+      position: sticky;
+      bottom: 0;
+  }
+  .pis-tbl tbody tr:hover td { background: #1a1a3a !important; }
+  .pis-pos { color: #00c853; }
+  .pis-neg { color: #e05555; }
+  .pis-bold { font-weight: 700; }
+  </style>
+
+  <h2 style="margin-top:0;margin-bottom:0.7rem;font-size:1rem;color:#ccc">Results</h2>
+
+  <!-- Summary strip -->
+  <div id="pis-summary" style="display:flex;flex-wrap:wrap;gap:0.7rem;margin-bottom:1.1rem"></div>
+
+  <h3 style="margin:0 0 0.4rem;font-size:0.85rem;color:#666;font-weight:400">
+    Detail &mdash; click any header to sort
+  </h3>
+
+  <div class="pis-tbl-wrap">
+    <table class="pis-tbl" id="pis-tbl">
+      <thead>
+        <tr>
+          <th data-col="0"  data-arrow="">Ticker</th>
+          <th data-col="1"  data-arrow="">Amount</th>
+          <th data-col="2"  data-arrow="">Reinvest %</th>
+          <th data-col="3"  data-arrow="">Start Price</th>
+          <th data-col="4"  data-arrow="">End Price</th>
+          <th data-col="5"  data-arrow="">Price &Delta;%</th>
+          <th data-col="6"  data-arrow="">TTM Yield %</th>
+          <th data-col="7"  data-arrow="">Total Distributions</th>
+          <th data-col="8"  data-arrow="">Eff. Yield on Cost %</th>
+          <th data-col="9"  data-arrow="">Reinvested $</th>
+          <th data-col="10" data-arrow="">Final Value</th>
+          <th data-col="11" data-arrow="">Gain/Loss $</th>
+          <th data-col="12" data-arrow="">Gain/Loss %</th>
+          <th data-col="13" data-arrow="">NAV Erosion</th>
+          <th data-col="14" data-arrow="">Shares Deficit</th>
+          <th data-col="15" data-arrow="">Note</th>
+        </tr>
+      </thead>
+      <tbody id="pis-tbl-body"></tbody>
+      <tfoot>
+        <tr id="pis-footer">
+          <td>TOTAL</td>
+          <td id="pft-amount"></td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td id="pft-dist"></td>
+          <td></td>
+          <td id="pft-reinvested"></td>
+          <td id="pft-final"></td>
+          <td id="pft-gl"></td>
+          <td></td><td></td><td></td><td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- Chart section -->
+  <div style="margin-top:1.4rem;background:#111124;border:1px solid #2a2a3e;border-radius:8px;padding:1rem 1.2rem">
+    <div style="display:flex;flex-wrap:wrap;gap:0.7rem;align-items:center;margin-bottom:0.8rem">
+      <label style="font-size:0.85rem;color:#aaa;font-weight:600">View chart for:</label>
+      <select id="pis-chart-select"
+              style="padding:0.35rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                     border-radius:4px;color:#e0e0e0;font-size:0.85rem;min-width:140px">
+        <option value="">— run simulation first —</option>
+      </select>
+    </div>
+    <div id="pis-chart-div" style="width:100%;min-height:380px"></div>
+  </div>
+</div>
+
+<!-- ── Portfolio Picker Modal ── -->
+<div id="pis-picker-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#111124;border:1px solid #3a3a5c;border-radius:10px;
+              width:min(820px,95vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:0.7rem;padding:0.9rem 1.2rem;border-bottom:1px solid #2a2a3e;flex-shrink:0">
+      <span style="font-size:1rem;font-weight:700;color:#e0e0e0;flex:1">Select from Portfolio</span>
+      <span style="font-size:0.78rem;color:#555" id="pis-pick-count-lbl">0 selected</span>
+      <button onclick="closePicker()" style="background:none;border:none;color:#666;font-size:1.2rem;cursor:pointer;padding:0 0.3rem">&times;</button>
+    </div>
+
+    <!-- Search + controls -->
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;padding:0.6rem 1.2rem;border-bottom:1px solid #1e1e38;flex-shrink:0">
+      <input id="pis-pick-search" type="text" placeholder="Search ticker or name…"
+             oninput="filterPicker()"
+             style="flex:1;min-width:160px;padding:0.35rem 0.6rem;background:#0b0b1c;border:1px solid #3a3a5c;
+                    border-radius:4px;color:#e0e0e0;font-size:0.85rem">
+      <button onclick="pickerSelectAll()" style="padding:0.3rem 0.7rem;background:none;border:1px solid #3a3a5c;border-radius:4px;color:#aaa;font-size:0.78rem;cursor:pointer">Select All</button>
+      <button onclick="pickerClearAll()" style="padding:0.3rem 0.7rem;background:none;border:1px solid #3a3a5c;border-radius:4px;color:#aaa;font-size:0.78rem;cursor:pointer">Clear All</button>
+    </div>
+
+    <!-- Ticker list -->
+    <div style="overflow-y:auto;flex:1">
+      <table style="border-collapse:collapse;width:100%;font-size:0.82rem">
+        <thead>
+          <tr style="position:sticky;top:0;background:#0b0b1c;z-index:2">
+            <th style="padding:0.4rem 0.6rem;text-align:center;border-bottom:1px solid #2a2a3e;width:36px"></th>
+            <th style="padding:0.4rem 0.6rem;text-align:left;border-bottom:1px solid #2a2a3e;color:#aaa;font-weight:600">Ticker</th>
+            <th style="padding:0.4rem 0.6rem;text-align:left;border-bottom:1px solid #2a2a3e;color:#aaa;font-weight:600">Name</th>
+            <th style="padding:0.4rem 0.6rem;text-align:left;border-bottom:1px solid #2a2a3e;color:#aaa;font-weight:600">Type</th>
+            <th style="padding:0.4rem 0.6rem;text-align:right;border-bottom:1px solid #2a2a3e;color:#aaa;font-weight:600">Yield%</th>
+            <th style="padding:0.4rem 0.8rem;text-align:right;border-bottom:1px solid #2a2a3e;color:#aaa;font-weight:600">Amount ($)</th>
+            <th style="padding:0.4rem 0.8rem;text-align:right;border-bottom:1px solid #2a2a3e;color:#aaa;font-weight:600">Reinvest%</th>
+          </tr>
+        </thead>
+        <tbody id="pis-pick-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Footer -->
+    <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;padding:0.7rem 1.2rem;border-top:1px solid #2a2a3e;flex-shrink:0">
+      <button onclick="pickerAddAll()"
+              style="padding:0.4rem 1.1rem;background:#1a1a3a;border:1px solid #00e89a;
+                     border-radius:5px;color:#00e89a;font-size:0.85rem;cursor:pointer;font-weight:600">Add Entire Portfolio</button>
+      <button onclick="pickerAddSelected()"
+              style="padding:0.4rem 1.1rem;background:#1a1a3a;border:1px solid #7ecfff;
+                     border-radius:5px;color:#7ecfff;font-size:0.85rem;cursor:pointer">Add Selected to Grid</button>
+      <button onclick="closePicker()"
+              style="padding:0.4rem 0.9rem;background:none;border:1px solid #3a3a5c;
+                     border-radius:5px;color:#666;font-size:0.85rem;cursor:pointer">Cancel</button>
+      <span id="pis-pick-err" style="display:none;color:#e05555;font-size:0.78rem;margin-left:0.5rem"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+
+    var MAX_ROWS  = 150;
+    var _mode     = 'historical';
+    var _market   = 'neutral';
+    var _duration = 36;
+
+    window._pisChartData = {};
+
+    /* ── Helpers ── */
+    function fmt$(v) {
+        return '$' + parseFloat(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    }
+    function fmtPct(v) {
+        return (v >= 0 ? '+' : '') + parseFloat(v).toFixed(2) + '%';
+    }
+    function statTile(label, value, color, sub) {
+        return '<div style="background:#0d0d22;border:1px solid #2a2a3e;border-radius:6px;' +
+               'padding:0.55rem 1.1rem;text-align:center;min-width:130px;flex:1 1 130px">' +
+               '<div style="font-size:1.25rem;font-weight:700;color:' + color + '">' + value + '</div>' +
+               '<div style="font-size:0.72rem;color:#aaa;margin-top:2px">' + label + '</div>' +
+               (sub ? '<div style="font-size:0.68rem;color:#555;margin-top:1px">' + sub + '</div>' : '') +
+               '</div>';
+    }
+    function updateCount() {
+        var n = document.getElementById('pis-tbody').rows.length;
+        document.getElementById('pis-count').textContent = n;
+        document.getElementById('pis-add-btn').disabled = (n >= MAX_ROWS);
+    }
+
+    /* ── Mode toggle ── */
+    window.setMode = function (m) {
+        _mode = m;
+        var isHist = (m === 'historical');
+        document.getElementById('pis-hist-settings').style.display = isHist ? 'flex' : 'none';
+        document.getElementById('pis-sim-settings').style.display  = isHist ? 'none' : 'flex';
+        var bH = document.getElementById('pis-mode-hist');
+        var bS = document.getElementById('pis-mode-sim');
+        bH.style.borderColor = isHist ? '#7ecfff' : '#3a3a5c';
+        bH.style.color       = isHist ? '#7ecfff' : '#aaa';
+        bH.style.background  = isHist ? '#1a1a3a' : '#111124';
+        bS.style.borderColor = isHist ? '#3a3a5c' : '#00e89a';
+        bS.style.color       = isHist ? '#aaa'    : '#00e89a';
+        bS.style.background  = isHist ? '#111124' : '#1a1a3a';
+    };
+
+    /* ── Market type ── */
+    window.setMarket = function (t) {
+        _market = t;
+        ['bullish','neutral','bearish'].forEach(function (k) {
+            var btn = document.getElementById('pis-mkt-' + k);
+            var active = (k === t);
+            var color = k === 'bullish' ? '#00c853' : (k === 'bearish' ? '#e05555' : '#f9a825');
+            btn.style.borderColor = active ? color : '#3a3a5c';
+            btn.style.color       = active ? color : '#aaa';
+            btn.style.background  = active ? '#1a1a3a' : '#111124';
+        });
+    };
+
+    /* ── Duration ── */
+    window.setDuration = function (m) {
+        _duration = m;
+        document.getElementById('pis-duration').value = m;
+    };
+
+    /* ── Add row ── */
+    window.addRow = function (ticker, amount, reinvest, yieldOvr) {
+        var tbody = document.getElementById('pis-tbody');
+        if (tbody.rows.length >= MAX_ROWS) return;
+        var tr = document.createElement('tr');
+        var lbl = 'font-size:0.68rem;color:#666;margin-bottom:3px;display:block';
+        tr.innerHTML =
+            '<td style="padding:0.3rem 0.4rem">' +
+              '<span style="' + lbl + '">Ticker symbol</span>' +
+              '<input type="text" maxlength="10" placeholder="e.g. QQQI" value="' + (ticker || '') + '"' +
+              ' style="width:80px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #3a3a5c;' +
+              'border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-transform:uppercase"' +
+              ' oninput="this.value=this.value.toUpperCase()">' +
+            '</td>' +
+            '<td style="padding:0.3rem 0.4rem">' +
+              '<span style="' + lbl + '">Dollar amount to invest</span>' +
+              '<input type="number" min="1" step="100" placeholder="e.g. 10000" value="' + (amount || '') + '"' +
+              ' style="width:110px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #3a3a5c;' +
+              'border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-align:right">' +
+            '</td>' +
+            '<td style="padding:0.3rem 0.4rem">' +
+              '<span style="' + lbl + '">% of distributions to reinvest (DRIP)</span>' +
+              '<input type="number" min="0" max="100" step="1" placeholder="0–100" value="' + (reinvest !== undefined && reinvest !== null ? reinvest : '') + '"' +
+              ' style="width:100px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #3a3a5c;' +
+              'border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-align:right">' +
+            '</td>' +
+            '<td style="padding:0.3rem 0.4rem">' +
+              '<span style="' + lbl + '">Annual yield % override (leave blank to auto-fetch)</span>' +
+              '<input type="number" min="0" max="100" step="0.1" placeholder="auto" value="' + (yieldOvr !== undefined && yieldOvr !== null ? yieldOvr : '') + '"' +
+              ' style="width:100px;padding:0.35rem 0.5rem;background:#0b0b1c;border:1px solid #2a4a3e;' +
+              'border-radius:4px;color:#e0e0e0;font-size:0.85rem;text-align:right">' +
+            '</td>' +
+            '<td style="padding:0.3rem 0.4rem;text-align:center;vertical-align:bottom">' +
+              '<button onclick="this.closest(\'tr\').remove();updateCount();" title="Remove"' +
+              ' style="background:none;border:none;color:#e05555;font-size:1rem;cursor:pointer;padding:0 0.3rem">&#10005;</button>' +
+            '</td>';
+        tbody.appendChild(tr);
+        updateCount();
+    };
+
+    /* ── Clear grid ── */
+    window.clearGrid = function () {
+        document.getElementById('pis-tbody').innerHTML = '';
+        updateCount();
+        addRow();
+        document.getElementById('pis-results').style.display = 'none';
+        document.getElementById('pis-error').style.display   = 'none';
+        document.getElementById('pis-summary').innerHTML     = '';
+        // Deselect saved dropdown so it's clear this is a fresh simulation
+        document.getElementById('pis-saved-select').value = '';
+    };
+
+    /* ── Collect rows ── */
+    function collectRows() {
+        var rows = [];
+        document.getElementById('pis-tbody').querySelectorAll('tr').forEach(function (tr) {
+            var inputs = tr.querySelectorAll('input');
+            var ticker = inputs[0].value.trim().toUpperCase();
+            if (!ticker) return;   // skip blank rows
+            var yo = inputs[3].value.trim();
+            rows.push({
+                ticker:        ticker,
+                amount:        parseFloat(inputs[1].value) || 0,
+                reinvest_pct:  parseFloat(inputs[2].value) || 0,
+                yield_override: yo !== '' ? parseFloat(yo) : null,
+            });
+        });
+        return rows;
+    }
+
+
+    /* ── Load saved dropdown ── */
+    function loadSavedList() {
+        return fetch('/portfolio_income_sim/saved')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                var sel = document.getElementById('pis-saved-select');
+                sel.innerHTML = '<option value="">— no saved simulations —</option>';
+                (d.saved || []).forEach(function (s) {
+                    var opt = document.createElement('option');
+                    opt.value = s.id;
+                    var modeLabel = s.mode === 'simulate'
+                        ? '[Sim ' + (s.market_type || '') + ' ' + (s.duration_months || '?') + 'mo]'
+                        : '[Hist ' + (s.start_date || '?') + ' → ' + (s.end_date || '?') + ']';
+                    opt.textContent = s.name + '  ' + modeLabel + '  [' + s.created_at + ']';
+                    sel.appendChild(opt);
+                });
+            });
+    }
+
+    /* ── Load selected saved ── */
+    window.loadSaved = function () {
+        var sel = document.getElementById('pis-saved-select');
+        var id  = sel.value;
+        if (!id) return;
+        fetch('/portfolio_income_sim/saved/' + id)
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.error) { alert(d.error); return; }
+                // Set mode
+                var m = d.mode || 'historical';
+                setMode(m);
+                if (m === 'historical') {
+                    if (d.start) document.getElementById('pis-start').value = d.start;
+                    if (d.end)   document.getElementById('pis-end').value   = d.end;
+                } else {
+                    if (d.market_type) setMarket(d.market_type);
+                    if (d.duration_months) {
+                        _duration = d.duration_months;
+                        document.getElementById('pis-duration').value = d.duration_months;
+                    }
+                }
+                // Replace grid rows
+                document.getElementById('pis-tbody').innerHTML = '';
+                (d.rows || []).forEach(function (r) {
+                    addRow(r.ticker, r.amount, r.reinvest_pct, r.yield_override);
+                });
+                if (!d.rows || d.rows.length === 0) addRow();
+                updateCount();
+                document.getElementById('pis-results').style.display = 'none';
+            })
+            .catch(function (err) { alert('Load failed: ' + err.message); });
+    };
+
+    /* ── Delete saved ── */
+    window.deleteSaved = function () {
+        var sel = document.getElementById('pis-saved-select');
+        var id  = sel.value;
+        if (!id) return;
+        var name = sel.options[sel.selectedIndex].textContent.split('  [')[0];
+        if (!confirm('Delete "' + name + '"?')) return;
+        fetch('/portfolio_income_sim/saved/' + id, {method: 'DELETE'})
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.error) { alert(d.error); return; }
+                var msg = document.getElementById('pis-saved-delete-msg');
+                msg.style.display = '';
+                setTimeout(function () { msg.style.display = 'none'; }, 2000);
+                loadSavedList();
+            });
+    };
+
+    /* ── Save simulation (always creates new) ── */
+    window.showSaveSimForm = function () {
+        document.getElementById('pis-sim-name').value = '';
+        document.getElementById('pis-sim-save-err').style.display = 'none';
+        document.getElementById('pis-sim-form').style.display = 'flex';
+        document.getElementById('pis-sim-name').focus();
+    };
+    window.cancelSaveSim = function () {
+        document.getElementById('pis-sim-form').style.display = 'none';
+        document.getElementById('pis-sim-name').value = '';
+    };
+    window.confirmSaveSim = function () {
+        var name  = document.getElementById('pis-sim-name').value.trim();
+        var errEl = document.getElementById('pis-sim-save-err');
+        if (!name) {
+            errEl.textContent = 'Please enter a name.';
+            errEl.style.display = '';
+            return;
+        }
+        var rows = collectRows();
+        var payload = {name: name, mode: _mode, rows: rows};
+        if (_mode === 'historical') {
+            payload.start = document.getElementById('pis-start').value;
+            payload.end   = document.getElementById('pis-end').value;
+        } else {
+            payload.market_type     = _market;
+            payload.duration_months = parseInt(document.getElementById('pis-duration').value) || 36;
+        }
+        fetch('/portfolio_income_sim/saved', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.error) { errEl.textContent = d.error; errEl.style.display = ''; return; }
+            cancelSaveSim();
+            loadSavedList().then(function () {
+                var s = document.getElementById('pis-saved-select');
+                for (var i = 0; i < s.options.length; i++) {
+                    if (s.options[i].value == d.id) { s.selectedIndex = i; break; }
+                }
+                var okMsg = document.getElementById('pis-saved-ok-msg');
+                okMsg.style.display = '';
+                setTimeout(function () { okMsg.style.display = 'none'; }, 2500);
+            });
+        })
+        .catch(function (err) { errEl.textContent = 'Save failed: ' + err.message; errEl.style.display = ''; });
+    };
+
+    /* ── Rename saved simulation ── */
+    window.openRenameSim = function () {
+        var sel = document.getElementById('pis-saved-select');
+        if (!sel.value) { alert('Select a simulation first.'); return; }
+        var name = sel.options[sel.selectedIndex].textContent.split('  [')[0];
+        document.getElementById('pis-rename-input').value = name;
+        document.getElementById('pis-rename-err').style.display = 'none';
+        document.getElementById('pis-rename-form').style.display = 'flex';
+        document.getElementById('pis-rename-input').focus();
+        document.getElementById('pis-rename-input').select();
+    };
+    window.cancelRenameSim = function () {
+        document.getElementById('pis-rename-form').style.display = 'none';
+        document.getElementById('pis-rename-input').value = '';
+    };
+    window.confirmRenameSim = function () {
+        var sel    = document.getElementById('pis-saved-select');
+        var id     = sel.value;
+        var newName = document.getElementById('pis-rename-input').value.trim();
+        var errEl  = document.getElementById('pis-rename-err');
+        if (!newName) { errEl.textContent = 'Enter a name.'; errEl.style.display = ''; return; }
+        // Fetch existing data so we only change the name, not the rows/settings
+        fetch('/portfolio_income_sim/saved/' + id)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.error) { errEl.textContent = d.error; errEl.style.display = ''; return; }
+            var payload = {
+                name: newName,
+                mode: d.mode || 'historical',
+                rows: d.rows || [],
+                start: d.start || '',
+                end: d.end || '',
+                market_type: d.market_type || '',
+                duration_months: d.duration_months || null,
+            };
+            return fetch('/portfolio_income_sim/saved/' + id, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            }).then(function (r) { return r.json(); });
+        })
+        .then(function (d) {
+            if (!d || d.error) { errEl.textContent = (d && d.error) || 'Rename failed.'; errEl.style.display = ''; return; }
+            cancelRenameSim();
+            loadSavedList().then(function () {
+                var s = document.getElementById('pis-saved-select');
+                for (var i = 0; i < s.options.length; i++) {
+                    if (s.options[i].value == id) { s.selectedIndex = i; break; }
+                }
+            });
+        })
+        .catch(function (err) { errEl.textContent = 'Rename failed: ' + err.message; errEl.style.display = ''; });
+    };
+
+    /* ── Update saved simulation with current grid state ── */
+    window.openUpdateSim = function () {
+        var sel = document.getElementById('pis-saved-select');
+        if (!sel.value) { alert('Select a simulation first.'); return; }
+        var name = sel.options[sel.selectedIndex].textContent.split('  [')[0];
+        document.getElementById('pis-update-name-lbl').textContent = '\u201c' + name + '\u201d';
+        document.getElementById('pis-update-err').style.display = 'none';
+        document.getElementById('pis-update-form').style.display = 'flex';
+    };
+    window.cancelUpdateSim = function () {
+        document.getElementById('pis-update-form').style.display = 'none';
+    };
+    window.confirmUpdateSim = function () {
+        var sel   = document.getElementById('pis-saved-select');
+        var id    = sel.value;
+        var name  = sel.options[sel.selectedIndex].textContent.split('  [')[0];
+        var errEl = document.getElementById('pis-update-err');
+        var rows = collectRows();
+        var payload = {name: name, mode: _mode, rows: rows};
+        if (_mode === 'historical') {
+            payload.start = document.getElementById('pis-start').value;
+            payload.end   = document.getElementById('pis-end').value;
+        } else {
+            payload.market_type     = _market;
+            payload.duration_months = parseInt(document.getElementById('pis-duration').value) || 36;
+        }
+        fetch('/portfolio_income_sim/saved/' + id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.error) { errEl.textContent = d.error; errEl.style.display = ''; return; }
+            cancelUpdateSim();
+            loadSavedList().then(function () {
+                var s = document.getElementById('pis-saved-select');
+                for (var i = 0; i < s.options.length; i++) {
+                    if (s.options[i].value == id) { s.selectedIndex = i; break; }
+                }
+            });
+        })
+        .catch(function (err) { errEl.textContent = 'Update failed: ' + err.message; errEl.style.display = ''; });
+    };
+
+    /* ── Build result row ── */
+    function buildResultRow(r) {
+        if (r.error && !r.start_price) {
+            return '<tr>' +
+                '<td class="pis-bold" data-val="' + r.ticker + '">' + r.ticker + '</td>' +
+                '<td data-val="' + (r.amount||0) + '">' + fmt$(r.amount||0) + '</td>' +
+                '<td data-val="' + (r.reinvest_pct||0) + '">' + (r.reinvest_pct||0) + '%</td>' +
+                '<td colspan="12" style="text-align:left;color:#e05555">' + r.error + '</td>' +
+                '<td></td>' +
+                '</tr>';
+        }
+
+        var pDeltaCls = r.price_delta_pct < 0 ? 'pis-neg' : (r.price_delta_pct > 0 ? 'pis-pos' : '');
+        var glCls     = r.gain_loss_dollar < 0 ? 'pis-neg' : 'pis-pos';
+        var glPCls    = r.gain_loss_pct    < 0 ? 'pis-neg' : 'pis-pos';
+        var effYldCls = r.effective_yield_pct >= 10 ? 'pis-pos' : '';
+        var erosionHtml = r.has_erosion
+            ? '<span class="pis-neg" style="font-weight:700">Yes</span>'
+            : '<span class="pis-pos" style="font-weight:700">No</span>';
+        var defCls = r.final_deficit > 0 ? 'pis-neg' : 'pis-pos';
+        var ttmYield = (r.ttm_yield_pct !== null && r.ttm_yield_pct !== undefined)
+            ? r.ttm_yield_pct.toFixed(2) + '%'
+            : '<span style="color:#555">—</span>';
+        var note = '';
+        if (r.warning) {
+            note = '<span style="color:#f9a825;white-space:normal">&#9888; ' + r.warning + '</span>';
+        } else {
+            note = '<span style="color:#555">&mdash;</span>';
+        }
+
+        return '<tr>' +
+            '<td class="pis-bold" data-val="' + r.ticker + '">' + r.ticker + '</td>' +
+            '<td data-val="' + r.amount + '">' + fmt$(r.amount) + '</td>' +
+            '<td data-val="' + r.reinvest_pct + '">' + r.reinvest_pct + '%</td>' +
+            '<td data-val="' + r.start_price + '">' + fmt$(r.start_price) + '</td>' +
+            '<td data-val="' + r.end_price + '">' + fmt$(r.end_price) + '</td>' +
+            '<td class="' + pDeltaCls + '" data-val="' + r.price_delta_pct + '">' + fmtPct(r.price_delta_pct) + '</td>' +
+            '<td data-val="' + (r.ttm_yield_pct || 0) + '">' + ttmYield + '</td>' +
+            '<td data-val="' + r.total_dist + '">' + fmt$(r.total_dist) + '</td>' +
+            '<td class="' + effYldCls + '" data-val="' + r.effective_yield_pct + '">' + r.effective_yield_pct.toFixed(2) + '%</td>' +
+            '<td data-val="' + r.total_reinvested + '">' + fmt$(r.total_reinvested) + '</td>' +
+            '<td data-val="' + r.final_value + '">' + fmt$(r.final_value) + '</td>' +
+            '<td class="' + glCls + '" data-val="' + r.gain_loss_dollar + '">' + fmt$(r.gain_loss_dollar) + '</td>' +
+            '<td class="' + glPCls + '" data-val="' + r.gain_loss_pct + '">' + fmtPct(r.gain_loss_pct) + '</td>' +
+            '<td data-val="' + (r.has_erosion ? 1 : 0) + '">' + erosionHtml + '</td>' +
+            '<td class="' + defCls + '" data-val="' + r.final_deficit + '">' + parseFloat(r.final_deficit).toFixed(4) + '</td>' +
+            '<td style="text-align:left;font-size:0.78rem;color:#aaa;min-width:180px;white-space:normal">' + note + '</td>' +
+            '</tr>';
+    }
+
+    /* ── Sort ── */
+    var sortCol = -1, sortAsc = true;
+    function initSort() {
+        var tbl = document.getElementById('pis-tbl');
+        tbl.querySelectorAll('thead th[data-col]').forEach(function (th) {
+            th.addEventListener('click', function () {
+                var col = parseInt(th.dataset.col, 10);
+                sortAsc = (sortCol === col) ? !sortAsc : true;
+                sortCol = col;
+                tbl.querySelectorAll('thead th[data-col]').forEach(function (h) { h.dataset.arrow = ''; });
+                th.dataset.arrow = sortAsc ? '\u25b2' : '\u25bc';
+                var tbody = tbl.querySelector('tbody');
+                var rows  = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function (a, b) {
+                    var aCell = a.cells[col], bCell = b.cells[col];
+                    var aV = (aCell.dataset.val != null && aCell.dataset.val !== '')
+                             ? aCell.dataset.val : aCell.textContent.trim();
+                    var bV = (bCell.dataset.val != null && bCell.dataset.val !== '')
+                             ? bCell.dataset.val : bCell.textContent.trim();
+                    var aN = parseFloat(aV), bN = parseFloat(bV);
+                    if (!isNaN(aN) && !isNaN(bN)) return sortAsc ? aN - bN : bN - aN;
+                    return sortAsc ? aV.localeCompare(bV) : bV.localeCompare(aV);
+                });
+                rows.forEach(function (r) { tbody.appendChild(r); });
+            });
+        });
+    }
+
+    /* ── Render chart ── */
+    window.renderChart = function (ticker) {
+        var el = document.getElementById('pis-chart-div');
+        var d  = window._pisChartData[ticker];
+        if (!d) { Plotly.purge(el); return; }
+
+        var xs     = d.date_labels;
+        var prices = d.monthly_prices;
+        var vals   = d.monthly_portfolio_vals;
+
+        Plotly.purge(el);
+        Plotly.newPlot(el, [
+            {
+                x: xs, y: prices,
+                name: 'Share Price',
+                type: 'scatter', mode: 'lines',
+                line: {color: '#7ecfff', width: 2},
+                yaxis: 'y1',
+                hovertemplate: '<b>%{x}</b><br>Price: $%{y:.4f}<extra></extra>',
+            },
+            {
+                x: xs, y: vals,
+                name: 'Portfolio Value',
+                type: 'scatter', mode: 'lines',
+                line: {color: '#00e89a', width: 2},
+                yaxis: 'y2',
+                hovertemplate: '<b>%{x}</b><br>Portfolio Value: $%{y:,.2f}<extra></extra>',
+            },
+            {
+                x: xs, y: Array(xs.length).fill(d.amount),
+                name: 'Initial Investment',
+                type: 'scatter', mode: 'lines',
+                line: {color: '#888', width: 1.5, dash: 'dash'},
+                yaxis: 'y2',
+                hovertemplate: '<b>%{x}</b><br>Initial: $%{y:,.2f}<extra></extra>',
+            },
+        ], {
+            template:  'plotly_dark',
+            title:     ticker + ' — Income Simulation',
+            height:    420,
+            margin:    {t: 50, l: 60, r: 60, b: 50},
+            legend:    {orientation: 'h', y: 1.08, x: 0},
+            hoverlabel: {bgcolor: '#111124', bordercolor: '#3a3a5c', font: {color: '#e0e0e0', size: 13}},
+            hovermode: 'x unified',
+            yaxis:  {title: 'Share Price ($)',     tickprefix: '$', side: 'left'},
+            yaxis2: {title: 'Portfolio Value ($)', tickprefix: '$', overlaying: 'y', side: 'right', showgrid: false},
+        }, {responsive: true});
+    };
+
+    /* ── Run simulation ── */
+    window.runSim = function () {
+        document.getElementById('pis-error').style.display   = 'none';
+        document.getElementById('pis-results').style.display = 'none';
+        document.getElementById('pis-spinner').style.display = 'flex';
+
+        var rows = collectRows();
+        var payload = {mode: _mode, rows: rows};
+        if (_mode === 'historical') {
+            payload.start = document.getElementById('pis-start').value;
+            payload.end   = document.getElementById('pis-end').value;
+        } else {
+            payload.market_type     = _market;
+            payload.duration_months = parseInt(document.getElementById('pis-duration').value) || 36;
+        }
+
+        fetch('/portfolio_income_sim/run', {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify(payload),
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                document.getElementById('pis-spinner').style.display = 'none';
+
+                if (data.error) {
+                    var e = document.getElementById('pis-error');
+                    e.textContent = data.error;
+                    e.style.display = '';
+                    return;
+                }
+
+                var results = data.results || [];
+
+                // Populate table
+                document.getElementById('pis-tbl-body').innerHTML = results.map(buildResultRow).join('');
+
+                // Store chart data + populate chart dropdown
+                window._pisChartData = {};
+                var chartSel = document.getElementById('pis-chart-select');
+                chartSel.innerHTML = '';
+                var firstTicker = null;
+
+                var totAmount = 0, totDist = 0, totReinv = 0, totFinal = 0, totGL = 0;
+                var erosionCount = 0, validCount = 0, errorCount = 0;
+                var best = null, worst = null;
+
+                results.forEach(function (r) {
+                    if (r.error && !r.start_price) {
+                        errorCount++;
+                        return;
+                    }
+                    validCount++;
+                    totAmount += r.amount           || 0;
+                    totDist   += r.total_dist        || 0;
+                    totReinv  += r.total_reinvested  || 0;
+                    totFinal  += r.final_value       || 0;
+                    totGL     += r.gain_loss_dollar  || 0;
+                    if (r.has_erosion) erosionCount++;
+                    if (best  === null || r.gain_loss_pct > best.gain_loss_pct)  best  = r;
+                    if (worst === null || r.gain_loss_pct < worst.gain_loss_pct) worst = r;
+
+                    if (r.monthly_prices && r.monthly_prices.length > 0) {
+                        window._pisChartData[r.ticker] = r;
+                        var opt = document.createElement('option');
+                        opt.value = r.ticker;
+                        opt.textContent = r.ticker;
+                        chartSel.appendChild(opt);
+                        if (!firstTicker) firstTicker = r.ticker;
+                    }
+                });
+
+                // Footer
+                document.getElementById('pft-amount').textContent     = fmt$(totAmount);
+                document.getElementById('pft-dist').textContent       = fmt$(totDist);
+                document.getElementById('pft-reinvested').textContent = fmt$(totReinv);
+                document.getElementById('pft-final').textContent      = fmt$(totFinal);
+                var glEl = document.getElementById('pft-gl');
+                glEl.textContent = fmt$(totGL);
+                glEl.className   = totGL >= 0 ? 'pis-pos' : 'pis-neg';
+
+                // Summary strip
+                var totGLPct  = totAmount > 0 ? totGL / totAmount * 100 : 0;
+                var totEffYld = totAmount > 0 ? totDist / totAmount * 100 : 0;
+                var glColor   = totGL     >= 0 ? '#00c853' : '#e05555';
+                var glPColor  = totGLPct  >= 0 ? '#00c853' : '#e05555';
+                var erosionColor = erosionCount > 0 ? '#e05555' : '#00c853';
+                var bestHtml  = best  ? '<span style="color:#00c853;font-weight:700">' + best.ticker  + '</span>' : '—';
+                var worstHtml = worst ? '<span style="color:#e05555;font-weight:700">' + worst.ticker + '</span>' : '—';
+                var strip = document.getElementById('pis-summary');
+                var marketTile = (_mode === 'simulate')
+                    ? statTile('Market Bias', _market.charAt(0).toUpperCase() + _market.slice(1),
+                               _market === 'bullish' ? '#00c853' : (_market === 'bearish' ? '#e05555' : '#f9a825'))
+                    : '';
+                strip.innerHTML =
+                    statTile('Total Invested',         fmt$(totAmount),  '#7ecfff') +
+                    statTile('Total Final Value',       fmt$(totFinal),   '#7ecfff') +
+                    statTile('Total Gain / Loss',       fmt$(totGL),      glColor) +
+                    statTile('Portfolio Return',        fmtPct(totGLPct), glPColor) +
+                    statTile('Total Distributions',     fmt$(totDist),    '#00e89a') +
+                    statTile('Eff. Yield on Cost',      totEffYld.toFixed(2) + '%', '#00e89a') +
+                    statTile('Total Reinvested',        fmt$(totReinv),   '#7ecfff') +
+                    statTile('NAV Erosion',             erosionCount + ' of ' + validCount, erosionColor, 'funds showing erosion') +
+                    statTile('Best Performer',          bestHtml,  '#00c853', best  ? fmtPct(best.gain_loss_pct)  : '') +
+                    statTile('Worst Performer',         worstHtml, '#e05555', worst ? fmtPct(worst.gain_loss_pct) : '') +
+                    marketTile +
+                    (errorCount > 0 ? statTile('No Data', errorCount + ' ticker' + (errorCount > 1 ? 's' : ''), '#f9a825', 'check Note column') : '');
+
+                document.getElementById('pis-results').style.display = '';
+                initSort();
+
+                // Render chart for first available ticker
+                if (firstTicker) {
+                    chartSel.value = firstTicker;
+                    renderChart(firstTicker);
+                }
+            })
+            .catch(function (err) {
+                document.getElementById('pis-spinner').style.display = 'none';
+                var e = document.getElementById('pis-error');
+                e.textContent = 'Request failed: ' + err.message;
+                e.style.display = '';
+            });
+    };
+
+    /* ── Portfolio Picker ── */
+    var _pickerTickers = [];   // full list from server
+
+    window.openPortfolioPicker = function () {
+        document.getElementById('pis-pick-search').value = '';
+        document.getElementById('pis-pick-err').style.display = 'none';
+        var overlay = document.getElementById('pis-picker-overlay');
+        overlay.style.display = 'flex';
+
+        // Always fetch fresh so newly imported portfolio data is reflected
+        document.getElementById('pis-pick-tbody').innerHTML =
+            '<tr><td colspan="7" style="padding:1.5rem;text-align:center;color:#555">Loading…</td></tr>';
+        fetch('/portfolio_income_sim/portfolio_tickers')
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            _pickerTickers = d.tickers || [];
+            renderPickerList(_pickerTickers);
+            updatePickerCount();
+        })
+        .catch(function () {
+            document.getElementById('pis-pick-tbody').innerHTML =
+                '<tr><td colspan="7" style="padding:1rem;text-align:center;color:#e05555">Failed to load portfolio.</td></tr>';
+        });
+    };
+
+    window.closePicker = function () {
+        document.getElementById('pis-picker-overlay').style.display = 'none';
+    };
+
+    function renderPickerList(list) {
+        // Remember which tickers are already in the grid so we can mark them
+        var inGrid = {};
+        document.getElementById('pis-tbody').querySelectorAll('tr').forEach(function (tr) {
+            var t = tr.querySelectorAll('input')[0].value.trim().toUpperCase();
+            if (t) inGrid[t] = true;
+        });
+
+        var html = '';
+        list.forEach(function (t) {
+            var already = !!inGrid[t.ticker];
+            var reinvestDef = t.drip ? 100 : 0;
+            var dimStyle = already ? 'opacity:0.45;' : '';
+            html +=
+                '<tr data-ticker="' + t.ticker + '" data-name="' + t.description.toLowerCase() + '"' +
+                '    style="border-bottom:1px solid #1a1a2e;' + dimStyle + '">' +
+                '<td style="padding:0.32rem 0.6rem;text-align:center">' +
+                  '<input type="checkbox" class="pis-pick-chk" data-ticker="' + t.ticker + '"' +
+                  (already ? ' disabled title="Already in grid"' : '') +
+                  ' onchange="updatePickerCount()"' +
+                  ' style="accent-color:#00e89a;width:15px;height:15px;cursor:pointer"></td>' +
+                '<td style="padding:0.32rem 0.6rem;font-weight:700;color:#e0e0e0">' + t.ticker + '</td>' +
+                '<td style="padding:0.32rem 0.6rem;color:#aaa;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + t.description + '">' + t.description + '</td>' +
+                '<td style="padding:0.32rem 0.6rem;color:#666;font-size:0.75rem">' + t.type + '</td>' +
+                '<td style="padding:0.32rem 0.6rem;text-align:right;color:#7ecfff">' + t.current_yield.toFixed(2) + '%</td>' +
+                '<td style="padding:0.32rem 0.8rem;text-align:right">' +
+                  '<input type="number" class="pis-pick-amount" min="0" step="100" value="' + t.amount.toFixed(0) + '"' +
+                  ' style="width:90px;padding:0.2rem 0.4rem;background:#0b0b1c;border:1px solid #2a2a3e;border-radius:3px;color:#e0e0e0;font-size:0.82rem;text-align:right">' +
+                '</td>' +
+                '<td style="padding:0.32rem 0.8rem;text-align:right">' +
+                  '<input type="number" class="pis-pick-reinvest" min="0" max="100" step="1" value="' + reinvestDef + '"' +
+                  ' style="width:60px;padding:0.2rem 0.4rem;background:#0b0b1c;border:1px solid #2a2a3e;border-radius:3px;color:#e0e0e0;font-size:0.82rem;text-align:right">' +
+                '</td>' +
+                '</tr>';
+        });
+        document.getElementById('pis-pick-tbody').innerHTML = html || '<tr><td colspan="7" style="padding:1rem;text-align:center;color:#555">No portfolio tickers found.</td></tr>';
+    }
+
+    window.filterPicker = function () {
+        var q = document.getElementById('pis-pick-search').value.toLowerCase();
+        document.getElementById('pis-pick-tbody').querySelectorAll('tr[data-ticker]').forEach(function (tr) {
+            var match = !q || tr.dataset.ticker.toLowerCase().includes(q) || tr.dataset.name.includes(q);
+            tr.style.display = match ? '' : 'none';
+        });
+        updatePickerCount();
+    };
+
+    window.pickerSelectAll = function () {
+        document.getElementById('pis-pick-tbody').querySelectorAll('.pis-pick-chk:not(:disabled)').forEach(function (chk) {
+            var tr = chk.closest('tr');
+            if (tr.style.display !== 'none') chk.checked = true;
+        });
+        updatePickerCount();
+    };
+
+    window.pickerAddAll = function () {
+        // Clear any active search filter so all rows are visible, then select all and add
+        document.getElementById('pis-pick-search').value = '';
+        filterPicker();
+        pickerSelectAll();
+        pickerAddSelected();
+    };
+
+    window.pickerClearAll = function () {
+        document.getElementById('pis-pick-tbody').querySelectorAll('.pis-pick-chk').forEach(function (chk) {
+            chk.checked = false;
+        });
+        updatePickerCount();
+    };
+
+    function updatePickerCount() {
+        var n = document.getElementById('pis-pick-tbody').querySelectorAll('.pis-pick-chk:checked').length;
+        document.getElementById('pis-pick-count-lbl').textContent = n + ' selected';
+    }
+
+    window.pickerAddSelected = function () {
+        var errEl = document.getElementById('pis-pick-err');
+        var tbody = document.getElementById('pis-pick-tbody');
+        var toAdd = [];
+        tbody.querySelectorAll('tr[data-ticker]').forEach(function (tr) {
+            var chk = tr.querySelector('.pis-pick-chk');
+            if (!chk || !chk.checked) return;
+            var amount    = parseFloat(tr.querySelector('.pis-pick-amount').value)   || 0;
+            var reinvest  = parseFloat(tr.querySelector('.pis-pick-reinvest').value) || 0;
+            toAdd.push({ticker: chk.dataset.ticker, amount: amount, reinvest: reinvest});
+        });
+
+        if (toAdd.length === 0) {
+            errEl.textContent = 'No tickers selected.';
+            errEl.style.display = '';
+            return;
+        }
+
+        // Remove any empty rows before adding so they don't block the count or run
+        var gridTbody = document.getElementById('pis-tbody');
+        Array.from(gridTbody.rows).forEach(function (tr) {
+            if (!tr.querySelectorAll('input')[0].value.trim()) tr.remove();
+        });
+
+        var gridCount = gridTbody.rows.length;
+        if (gridCount + toAdd.length > MAX_ROWS) {
+            errEl.textContent = 'Adding ' + toAdd.length + ' tickers would exceed the ' + MAX_ROWS + ' row limit.';
+            errEl.style.display = '';
+            return;
+        }
+
+        toAdd.forEach(function (r) {
+            addRow(r.ticker, r.amount, r.reinvest, null);
+        });
+        closePicker();
+    };
+
+    /* ── On load ── */
+    document.addEventListener('DOMContentLoaded', function () {
+        // Initialize defaults
+        setMode('historical');
+        setMarket('neutral');
+
+        // Start with a single empty row
+        addRow();
+
+        // Populate saved dropdown
+        loadSavedList();
+
+        // Chart ticker selection
+        document.getElementById('pis-chart-select').addEventListener('change', function () {
+            renderChart(this.value);
+        });
+
+        // Duration input sync
+        document.getElementById('pis-duration').addEventListener('change', function () {
+            _duration = parseInt(this.value) || 36;
+        });
+
+        // Save form Enter/Escape
+        document.getElementById('pis-sim-name').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter')  confirmSaveSim();
+            if (e.key === 'Escape') cancelSaveSim();
+        });
+        // Rename form Enter/Escape
+        document.getElementById('pis-rename-input').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter')  confirmRenameSim();
+            if (e.key === 'Escape') cancelRenameSim();
+        });
+
+        // Close picker modal on backdrop click
+        document.getElementById('pis-picker-overlay').addEventListener('click', function (e) {
+            if (e.target === this) closePicker();
+        });
+
+        // Picker search Enter key
+        document.getElementById('pis-pick-search').addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closePicker();
+        });
+    });
+
+})();
+</script>
+
+{% endblock %}

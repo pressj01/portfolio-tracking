@@ -1,0 +1,6 @@
+Flask
+openpyxl
+pyodbc
+pandas
+plotly
+yfinance

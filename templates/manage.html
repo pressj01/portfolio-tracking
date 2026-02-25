@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Data Management</h1>
+<p>Populate normalized tables from the imported data in all_account_info.</p>
+
+<div class="actions manage-actions">
+    <form action="{{ url_for('populate', table='holdings') }}" method="post">
+        <button type="submit" class="btn">Populate Holdings</button>
+    </form>
+    <form action="{{ url_for('populate', table='dividends') }}" method="post">
+        <button type="submit" class="btn">Populate Dividends</button>
+    </form>
+    <form action="{{ url_for('populate', table='income_tracking') }}" method="post">
+        <button type="submit" class="btn">Populate Income Tracking</button>
+    </form>
+    <form action="{{ url_for('populate', table='pillar_weights') }}" method="post">
+        <button type="submit" class="btn">Populate Pillar Weights</button>
+    </form>
+</div>
+{% endblock %}

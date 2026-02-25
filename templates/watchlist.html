@@ -1,0 +1,575 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 style="margin-bottom:0.5rem">Watchlist</h1>
+
+<!-- Tab bar -->
+<div id="wl-tabs" style="display:flex;gap:0;margin-bottom:1.2rem;border-bottom:2px solid #2a2a3e">
+  <button class="wl-tab wl-tab-active" data-tab="watching" onclick="switchTab('watching')"
+          style="padding:0.5rem 1.5rem;background:none;border:none;border-bottom:2px solid #7ecfff;
+                 color:#7ecfff;font-size:0.9rem;font-weight:600;cursor:pointer;margin-bottom:-2px">Watching</button>
+  <button class="wl-tab" data-tab="sold" onclick="switchTab('sold')"
+          style="padding:0.5rem 1.5rem;background:none;border:none;border-bottom:2px solid transparent;
+                 color:#888;font-size:0.9rem;font-weight:600;cursor:pointer;margin-bottom:-2px">Sold</button>
+</div>
+
+<!-- ═══════════════ WATCHING TAB ═══════════════ -->
+<div id="tab-watching">
+
+  <!-- Add form -->
+  <div style="display:flex;gap:0.5rem;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap">
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Ticker</label>
+      <input id="w-ticker" type="text" placeholder="e.g. SCHD"
+             style="width:100px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem;text-transform:uppercase">
+    </div>
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Notes (optional)</label>
+      <input id="w-notes" type="text" placeholder="Why interested?"
+             style="width:220px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem">
+    </div>
+    <button onclick="addWatching()" style="padding:0.4rem 1rem;background:#1a1a3a;border:1px solid #7ecfff;
+            border-radius:5px;color:#7ecfff;font-size:0.85rem;cursor:pointer">+ Add</button>
+    <button id="wl-load-btn" onclick="loadAnalysis()" style="padding:0.4rem 1rem;background:#0d2a1a;border:1px solid #00c853;
+            border-radius:5px;color:#00c853;font-size:0.85rem;cursor:pointer;margin-left:auto">
+      <span id="wl-load-icon" style="display:inline-block;font-size:1rem">&#8635;</span> Load Analysis
+    </button>
+  </div>
+
+  <!-- Summary counts (hidden until data loads) -->
+  <div id="wl-counts" style="display:none;flex-wrap:wrap;gap:1.2rem;margin-bottom:1rem">
+    <div style="background:#0d2a1a;border:1px solid #00c853;border-radius:6px;padding:0.4rem 1rem;text-align:center">
+      <div id="wl-c-buy" style="font-size:1.4rem;font-weight:700;color:#00c853">0</div>
+      <div style="font-size:0.7rem;color:#aaa">BUY</div>
+    </div>
+    <div style="background:#2a0d0d;border:1px solid #d50000;border-radius:6px;padding:0.4rem 1rem;text-align:center">
+      <div id="wl-c-sell" style="font-size:1.4rem;font-weight:700;color:#d50000">0</div>
+      <div style="font-size:0.7rem;color:#aaa">SELL</div>
+    </div>
+    <div style="background:#2a200a;border:1px solid #f9a825;border-radius:6px;padding:0.4rem 1rem;text-align:center">
+      <div id="wl-c-neut" style="font-size:1.4rem;font-weight:700;color:#f9a825">0</div>
+      <div style="font-size:0.7rem;color:#aaa">NEUTRAL</div>
+    </div>
+  </div>
+
+  <!-- Spinner -->
+  <div id="wl-spinner" style="display:none;flex-direction:column;align-items:center;padding:4rem 0;gap:1rem">
+    <div style="width:48px;height:48px;border:5px solid #2a2a3e;border-top-color:#7ecfff;border-radius:50%;animation:wl-spin 0.75s linear infinite"></div>
+    <p style="color:#aaa;margin:0;font-size:0.9rem">Fetching price data &amp; calculating indicators&hellip;</p>
+  </div>
+  <style>@keyframes wl-spin { to { transform: rotate(360deg); } }</style>
+
+  <!-- Error -->
+  <div id="wl-error" style="display:none" class="flash error"></div>
+
+  <!-- Empty state -->
+  <div id="wl-empty" style="text-align:center;padding:3rem 0;color:#666">
+    <p>No tickers in your watching list yet. Add one above to get started.</p>
+  </div>
+
+  <!-- Watching table -->
+  <div id="wl-table-wrap" style="display:none">
+    <div class="sst-wrap" style="max-height:600px;overflow:auto;border:1px solid #2a2a3e;border-radius:6px">
+      <table class="sst" id="wl-tbl">
+        <thead>
+          <tr>
+            <th data-col="0" data-arrow="">Ticker</th>
+            <th data-col="1" data-arrow="">Price</th>
+            <th data-col="2" data-arrow="">1D Chg</th>
+            <th data-col="3" data-arrow="">Div Yield</th>
+            <th data-col="4" data-arrow="">Signal</th>
+            <th data-col="5" data-arrow="">AO</th>
+            <th data-col="6" data-arrow="">RSI</th>
+            <th data-col="7" data-arrow="">MACD</th>
+            <th data-col="8" data-arrow="">SMA 50</th>
+            <th data-col="9" data-arrow="">SMA 200</th>
+            <th data-col="10" data-arrow="">Sharpe</th>
+            <th data-col="11" data-arrow="">Sortino</th>
+            <th data-col="12" data-arrow="">1Y Return</th>
+            <th data-col="13" data-arrow="">NAV Erosion</th>
+            <th data-col="14" data-arrow="">Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="wl-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ SOLD TAB ═══════════════ -->
+<div id="tab-sold" style="display:none">
+
+  <!-- Add sold form -->
+  <div style="display:flex;gap:0.5rem;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap">
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Ticker</label>
+      <input id="s-ticker" type="text" placeholder="e.g. VZ"
+             style="width:80px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem;text-transform:uppercase">
+    </div>
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Buy Price</label>
+      <input id="s-buy" type="number" step="0.01" placeholder="0.00"
+             style="width:90px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem">
+    </div>
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Sell Price</label>
+      <input id="s-sell" type="number" step="0.01" placeholder="0.00"
+             style="width:90px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem">
+    </div>
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Shares</label>
+      <input id="s-shares" type="number" step="0.01" placeholder="0"
+             style="width:80px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem">
+    </div>
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Sell Date</label>
+      <input id="s-date" type="date"
+             style="width:140px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem">
+    </div>
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Divs Received</label>
+      <input id="s-divs" type="number" step="0.01" placeholder="0.00"
+             style="width:100px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem">
+    </div>
+    <div>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:2px">Notes</label>
+      <input id="s-notes" type="text" placeholder="Optional"
+             style="width:160px;padding:0.35rem 0.5rem;background:#111124;border:1px solid #2a2a3e;
+                    border-radius:4px;color:#eee;font-size:0.85rem">
+    </div>
+    <button onclick="addSold()" style="padding:0.4rem 1rem;background:#1a1a3a;border:1px solid #7ecfff;
+            border-radius:5px;color:#7ecfff;font-size:0.85rem;cursor:pointer">+ Add</button>
+    <button onclick="loadAnalysis()" style="padding:0.4rem 1rem;background:#0d2a1a;border:1px solid #00c853;
+            border-radius:5px;color:#00c853;font-size:0.85rem;cursor:pointer;margin-left:auto">
+      <span style="display:inline-block;font-size:1rem">&#8635;</span> Load Analysis
+    </button>
+  </div>
+
+  <!-- Sold empty state -->
+  <div id="sold-empty" style="text-align:center;padding:3rem 0;color:#666">
+    <p>No sold positions recorded yet. Add one above.</p>
+  </div>
+
+  <!-- Sold table -->
+  <div id="sold-table-wrap" style="display:none">
+    <div class="sst-wrap" style="max-height:600px;overflow:auto;border:1px solid #2a2a3e;border-radius:6px">
+      <table class="sst" id="sold-tbl">
+        <thead>
+          <tr>
+            <th data-col="0" data-arrow="">Ticker</th>
+            <th data-col="1" data-arrow="">Buy Price</th>
+            <th data-col="2" data-arrow="">Sell Price</th>
+            <th data-col="3" data-arrow="">P&amp;L ($)</th>
+            <th data-col="4" data-arrow="">P&amp;L (%)</th>
+            <th data-col="5" data-arrow="">Divs Recv</th>
+            <th data-col="6" data-arrow="">Total Return</th>
+            <th data-col="7" data-arrow="">Cur. Price</th>
+            <th data-col="8" data-arrow="">Since Sold</th>
+            <th data-col="9" data-arrow="">Signal</th>
+            <th data-col="10" data-arrow="">Sell Date</th>
+            <th data-col="11" data-arrow="">Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sold-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Shared styles matching buy_sell_signals -->
+<style>
+.sst-wrap { max-height: 600px; overflow: auto; border: 1px solid #2a2a3e; border-radius: 6px; }
+.sst { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 0.82rem; }
+.sst th, .sst td { padding: 0.4rem 0.75rem; text-align: left; border-bottom: 1px solid #1e1e38; background: #111124; white-space: nowrap; }
+.sst thead th { position: sticky; top: 0; z-index: 3; background: #0b0b1c; border-bottom: 2px solid #3a3a5c; cursor: pointer; user-select: none; color: #ccc; font-size: 0.78rem; }
+.sst thead th:hover { background: #14143a; }
+.sst thead th::after { content: attr(data-arrow); margin-left: 4px; font-size: 0.65rem; color: #7ecfff; }
+.sst tbody tr:hover td { background: #1a1a3a !important; }
+.sig { display: inline-block; padding: 1px 8px; border-radius: 3px; font-weight: 700; font-size: 0.72rem; letter-spacing: 0.04em; }
+.sig-BUY { background: #00c853; color: #000; }
+.sig-SELL { background: #d50000; color: #fff; }
+.sig-NEUTRAL { background: #f9a825; color: #000; }
+.pct-up { color: #00c853; }
+.pct-down { color: #e05555; }
+.erosion-flag { background: #d50000; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.72rem; font-weight: 600; }
+.btn-del { background: none; border: 1px solid #d50000; color: #d50000; border-radius: 4px; padding: 2px 8px; font-size: 0.75rem; cursor: pointer; }
+.btn-del:hover { background: #d50000; color: #fff; }
+.btn-edit { background: none; border: 1px solid #7ecfff; color: #7ecfff; border-radius: 4px; padding: 2px 8px; font-size: 0.75rem; cursor: pointer; margin-right: 4px; }
+.btn-edit:hover { background: #7ecfff; color: #000; }
+</style>
+
+<script>
+(function() {
+
+/* ── State ── */
+var watchingList = [];   // [{ticker, notes}, ...]
+var analysisData = null; // from /watchlist/data
+
+/* ── Tab switching ── */
+window.switchTab = function(tab) {
+    document.getElementById('tab-watching').style.display = tab === 'watching' ? '' : 'none';
+    document.getElementById('tab-sold').style.display = tab === 'sold' ? '' : 'none';
+    document.querySelectorAll('.wl-tab').forEach(function(btn) {
+        var isActive = btn.dataset.tab === tab;
+        btn.style.borderBottomColor = isActive ? '#7ecfff' : 'transparent';
+        btn.style.color = isActive ? '#7ecfff' : '#888';
+        if (isActive) btn.classList.add('wl-tab-active');
+        else btn.classList.remove('wl-tab-active');
+    });
+};
+
+/* ── Helpers ── */
+function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+function sig(s) { return '<span class="sig sig-' + s + '">' + s + '</span>'; }
+function fmtPct(v) {
+    if (v == null) return '\u2014';
+    return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+}
+function pctClass(v) {
+    if (v == null) return '';
+    return v >= 0 ? 'pct-up' : 'pct-down';
+}
+function fmtDollar(v) {
+    if (v == null) return '\u2014';
+    return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
+}
+
+/* ── Watching CRUD ── */
+function loadWatchingList() {
+    fetch('/watchlist/watching').then(function(r) { return r.json(); }).then(function(data) {
+        watchingList = data.rows || [];
+        renderWatchingBasic();
+    });
+}
+
+function renderWatchingBasic() {
+    var empty = document.getElementById('wl-empty');
+    var wrap = document.getElementById('wl-table-wrap');
+    if (watchingList.length === 0 && !analysisData) {
+        empty.style.display = '';
+        wrap.style.display = 'none';
+        return;
+    }
+    empty.style.display = 'none';
+    wrap.style.display = '';
+
+    var tbody = document.getElementById('wl-tbody');
+    tbody.innerHTML = '';
+    var counts = {BUY: 0, SELL: 0, NEUTRAL: 0};
+    watchingList.forEach(function(r) {
+        var a = analysisData ? findAnalysis(r.ticker, 'watching') : null;
+        tbody.innerHTML += buildWatchingRow(r, a);
+        if (a && a.signal) counts[a.signal] = (counts[a.signal] || 0) + 1;
+    });
+    initSort('wl-tbl');
+
+    if (analysisData) {
+        document.getElementById('wl-c-buy').textContent = counts.BUY || 0;
+        document.getElementById('wl-c-sell').textContent = counts.SELL || 0;
+        document.getElementById('wl-c-neut').textContent = counts.NEUTRAL || 0;
+        document.getElementById('wl-counts').style.display = 'flex';
+    }
+}
+
+function findAnalysis(ticker, type) {
+    if (!analysisData) return null;
+    // First try the direct ticker_info lookup (covers all downloaded tickers)
+    if (analysisData.ticker_info && analysisData.ticker_info[ticker]) {
+        return analysisData.ticker_info[ticker];
+    }
+    // Fallback: search the watching/sold arrays
+    var list = type === 'watching' ? analysisData.watching : analysisData.sold;
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].ticker === ticker) return list[i];
+    }
+    return null;
+}
+
+function buildWatchingRow(r, a) {
+    var price = a ? (a.price != null ? '$' + a.price.toFixed(2) : '\u2014') : '\u2014';
+    var chg = a && a.change_1d != null ? fmtPct(a.change_1d) : '\u2014';
+    var chgCls = a ? pctClass(a.change_1d) : '';
+    var dy = a && a.div_yield != null ? a.div_yield.toFixed(2) + '%' : '\u2014';
+    var signal = a ? a.signal || 'NEUTRAL' : '\u2014';
+    var aoSig = a ? a.ao_sig || 'NEUTRAL' : '\u2014';
+    var rsiSig = a ? a.rsi_sig || 'NEUTRAL' : '\u2014';
+    var macdSig = a ? a.macd_sig || 'NEUTRAL' : '\u2014';
+    var sma50 = a ? a.sma50_sig || 'NEUTRAL' : '\u2014';
+    var sma200 = a ? a.sma200_sig || 'NEUTRAL' : '\u2014';
+    var sharpe = a && a.sharpe != null ? a.sharpe.toFixed(2) : '\u2014';
+    var sortino = a && a.sortino != null ? a.sortino.toFixed(2) : '\u2014';
+    var ret1y = a && a.one_yr_ret != null ? fmtPct(a.one_yr_ret) : '\u2014';
+    var ret1yCls = a ? pctClass(a.one_yr_ret) : '';
+    var erosion = a && a.nav_erosion ? '<span class="erosion-flag">YES</span>' : '\u2014';
+
+    var sigOrder = {'BUY':0,'NEUTRAL':1,'SELL':2};
+
+    return '<tr>' +
+        '<td data-val="' + esc(r.ticker) + '"><strong>' + esc(r.ticker) + '</strong></td>' +
+        '<td data-val="' + (a && a.price != null ? a.price : '') + '">' + price + '</td>' +
+        '<td data-val="' + (a && a.change_1d != null ? a.change_1d : '') + '" class="' + chgCls + '">' + chg + '</td>' +
+        '<td data-val="' + (a && a.div_yield != null ? a.div_yield : '') + '">' + dy + '</td>' +
+        '<td data-val="' + (a && signal !== '\u2014' ? sigOrder[signal] : 9) + '">' + (signal !== '\u2014' ? sig(signal) : '\u2014') + '</td>' +
+        '<td data-val="' + (a && aoSig !== '\u2014' ? sigOrder[aoSig] : 9) + '">' + (aoSig !== '\u2014' ? sig(aoSig) : '\u2014') + '</td>' +
+        '<td data-val="' + (a && rsiSig !== '\u2014' ? sigOrder[rsiSig] : 9) + '">' + (rsiSig !== '\u2014' ? sig(rsiSig) + (a.rsi_val != null ? ' <span style="color:#888;font-size:0.75rem">' + a.rsi_val + '</span>' : '') : '\u2014') + '</td>' +
+        '<td data-val="' + (a && macdSig !== '\u2014' ? sigOrder[macdSig] : 9) + '">' + (macdSig !== '\u2014' ? sig(macdSig) : '\u2014') + '</td>' +
+        '<td data-val="' + (a && sma50 !== '\u2014' ? sigOrder[sma50] : 9) + '">' + (sma50 !== '\u2014' ? sig(sma50) + (a.sma50_pct != null ? ' <span style="color:#888;font-size:0.75rem">' + fmtPct(a.sma50_pct) + '</span>' : '') : '\u2014') + '</td>' +
+        '<td data-val="' + (a && sma200 !== '\u2014' ? sigOrder[sma200] : 9) + '">' + (sma200 !== '\u2014' ? sig(sma200) + (a.sma200_pct != null ? ' <span style="color:#888;font-size:0.75rem">' + fmtPct(a.sma200_pct) + '</span>' : '') : '\u2014') + '</td>' +
+        '<td data-val="' + (a && a.sharpe != null ? a.sharpe : '') + '">' + sharpe + '</td>' +
+        '<td data-val="' + (a && a.sortino != null ? a.sortino : '') + '">' + sortino + '</td>' +
+        '<td data-val="' + (a && a.one_yr_ret != null ? a.one_yr_ret : '') + '" class="' + ret1yCls + '">' + ret1y + '</td>' +
+        '<td data-val="' + (a && a.nav_erosion ? 1 : 0) + '">' + erosion + '</td>' +
+        '<td data-val="' + esc(r.notes || '') + '">' + esc(r.notes || '') + '</td>' +
+        '<td><button class="btn-del" onclick="removeWatching(\'' + esc(r.ticker) + '\')">Remove</button></td>' +
+        '</tr>';
+}
+
+window.addWatching = function() {
+    var ticker = document.getElementById('w-ticker').value.trim().toUpperCase();
+    if (!ticker) return;
+    var notes = document.getElementById('w-notes').value.trim();
+    // Check duplicate
+    for (var i = 0; i < watchingList.length; i++) {
+        if (watchingList[i].ticker === ticker) { alert(ticker + ' is already in your watching list.'); return; }
+    }
+    watchingList.push({ticker: ticker, notes: notes});
+    saveWatchingList();
+    document.getElementById('w-ticker').value = '';
+    document.getElementById('w-notes').value = '';
+};
+
+window.removeWatching = function(ticker) {
+    watchingList = watchingList.filter(function(r) { return r.ticker !== ticker; });
+    saveWatchingList();
+};
+
+function saveWatchingList() {
+    fetch('/watchlist/watching', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rows: watchingList})
+    }).then(function() { renderWatchingBasic(); });
+}
+
+/* ── Sold CRUD ── */
+function loadSoldList() {
+    fetch('/watchlist/sold').then(function(r) { return r.json(); }).then(function(data) {
+        renderSoldBasic(data.rows || []);
+    });
+}
+
+function renderSoldBasic(rows) {
+    var empty = document.getElementById('sold-empty');
+    var wrap = document.getElementById('sold-table-wrap');
+    if (rows.length === 0 && !analysisData) {
+        empty.style.display = '';
+        wrap.style.display = 'none';
+        return;
+    }
+    empty.style.display = 'none';
+    wrap.style.display = '';
+
+    var tbody = document.getElementById('sold-tbody');
+    tbody.innerHTML = '';
+    rows.forEach(function(r) {
+        var a = analysisData ? findAnalysisSold(r.id) : null;
+        tbody.innerHTML += buildSoldRow(r, a);
+    });
+    initSort('sold-tbl');
+}
+
+function findAnalysisSold(id) {
+    if (!analysisData) return null;
+    for (var i = 0; i < analysisData.sold.length; i++) {
+        if (analysisData.sold[i].id === id) return analysisData.sold[i];
+    }
+    return null;
+}
+
+function buildSoldRow(r, a) {
+    var bp = r.buy_price, sp = r.sell_price, sh = r.shares_sold, dv = r.divs_received || 0;
+    var pnl = (bp != null && sp != null && sh != null) ? (sp - bp) * sh : null;
+    var pnlPct = (bp != null && sp != null && bp > 0) ? ((sp - bp) / bp * 100) : null;
+    var totalRet = pnl != null ? pnl + dv : null;
+
+    var curPrice = a ? a.cur_price : null;
+    var sinceSold = a ? a.price_since_sold : null;
+    var signal = a ? a.signal || 'NEUTRAL' : '\u2014';
+    var sigOrder = {'BUY':0,'NEUTRAL':1,'SELL':2};
+
+    return '<tr>' +
+        '<td data-val="' + esc(r.ticker) + '"><strong>' + esc(r.ticker) + '</strong></td>' +
+        '<td data-val="' + (bp != null ? bp : '') + '">' + (bp != null ? '$' + bp.toFixed(2) : '\u2014') + '</td>' +
+        '<td data-val="' + (sp != null ? sp : '') + '">' + (sp != null ? '$' + sp.toFixed(2) : '\u2014') + '</td>' +
+        '<td data-val="' + (pnl != null ? pnl : '') + '" class="' + pctClass(pnl) + '">' + (pnl != null ? fmtDollar(pnl) : '\u2014') + '</td>' +
+        '<td data-val="' + (pnlPct != null ? pnlPct : '') + '" class="' + pctClass(pnlPct) + '">' + (pnlPct != null ? fmtPct(pnlPct) : '\u2014') + '</td>' +
+        '<td data-val="' + dv + '">$' + dv.toFixed(2) + '</td>' +
+        '<td data-val="' + (totalRet != null ? totalRet : '') + '" class="' + pctClass(totalRet) + '">' + (totalRet != null ? fmtDollar(totalRet) : '\u2014') + '</td>' +
+        '<td data-val="' + (curPrice != null ? curPrice : '') + '">' + (curPrice != null ? '$' + curPrice.toFixed(2) : '\u2014') + '</td>' +
+        '<td data-val="' + (sinceSold != null ? sinceSold : '') + '" class="' + pctClass(sinceSold) + '">' + (sinceSold != null ? fmtPct(sinceSold) : '\u2014') + '</td>' +
+        '<td data-val="' + (signal !== '\u2014' ? sigOrder[signal] : 9) + '">' + (signal !== '\u2014' ? sig(signal) : '\u2014') + '</td>' +
+        '<td data-val="' + esc(r.sell_date || '') + '">' + esc(r.sell_date || '\u2014') + '</td>' +
+        '<td data-val="' + esc(r.notes || '') + '">' + esc(r.notes || '') + '</td>' +
+        '<td>' +
+            '<button class="btn-edit" onclick="editSold(' + r.id + ')">Edit</button>' +
+            '<button class="btn-del" onclick="deleteSold(' + r.id + ')">Del</button>' +
+        '</td>' +
+        '</tr>';
+}
+
+window.addSold = function() {
+    var ticker = document.getElementById('s-ticker').value.trim().toUpperCase();
+    if (!ticker) return;
+    var payload = {
+        action: 'add',
+        ticker: ticker,
+        buy_price: parseFloat(document.getElementById('s-buy').value) || null,
+        sell_price: parseFloat(document.getElementById('s-sell').value) || null,
+        shares_sold: parseFloat(document.getElementById('s-shares').value) || null,
+        sell_date: document.getElementById('s-date').value || null,
+        divs_received: parseFloat(document.getElementById('s-divs').value) || null,
+        notes: document.getElementById('s-notes').value.trim()
+    };
+    fetch('/watchlist/sold', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function() {
+        // Clear form
+        ['s-ticker','s-buy','s-sell','s-shares','s-date','s-divs','s-notes'].forEach(function(id) {
+            document.getElementById(id).value = '';
+        });
+        loadSoldList();
+    });
+};
+
+window.deleteSold = function(id) {
+    if (!confirm('Delete this sold position?')) return;
+    fetch('/watchlist/sold', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'delete', id: id})
+    }).then(function() { loadSoldList(); });
+};
+
+window.editSold = function(id) {
+    // Find the row data from analysis or re-fetch
+    var row = null;
+    if (analysisData) {
+        for (var i = 0; i < analysisData.sold.length; i++) {
+            if (analysisData.sold[i].id === id) { row = analysisData.sold[i]; break; }
+        }
+    }
+    var ticker = prompt('Ticker:', row ? row.ticker : '');
+    if (ticker === null) return;
+    var buyP = prompt('Buy Price:', row && row.buy_price != null ? row.buy_price : '');
+    var sellP = prompt('Sell Price:', row && row.sell_price != null ? row.sell_price : '');
+    var shares = prompt('Shares Sold:', row && row.shares_sold != null ? row.shares_sold : '');
+    var divs = prompt('Divs Received:', row && row.divs_received != null ? row.divs_received : '');
+    var notes = prompt('Notes:', row ? row.notes || '' : '');
+    if (ticker === null) return;
+
+    fetch('/watchlist/sold/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            ticker: ticker,
+            buy_price: buyP ? parseFloat(buyP) : null,
+            sell_price: sellP ? parseFloat(sellP) : null,
+            shares_sold: shares ? parseFloat(shares) : null,
+            divs_received: divs ? parseFloat(divs) : null,
+            notes: notes || ''
+        })
+    }).then(function() { loadSoldList(); });
+};
+
+/* ── Load Analysis (AJAX) ── */
+window.loadAnalysis = function() {
+    var spinner = document.getElementById('wl-spinner');
+    var errEl = document.getElementById('wl-error');
+    var loadIcon = document.getElementById('wl-load-icon');
+    spinner.style.display = 'flex';
+    errEl.style.display = 'none';
+    loadIcon.style.animation = 'wl-spin 0.75s linear infinite';
+    document.getElementById('wl-load-btn').disabled = true;
+
+    fetch('/watchlist/data')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            spinner.style.display = 'none';
+            loadIcon.style.animation = '';
+            document.getElementById('wl-load-btn').disabled = false;
+
+            if (data.error) {
+                errEl.textContent = data.error;
+                errEl.style.display = '';
+                return;
+            }
+
+            analysisData = data;
+
+            // Re-render both tabs (counts are updated inside renderWatchingBasic)
+            renderWatchingBasic();
+            // Re-render sold with analysis
+            fetch('/watchlist/sold').then(function(r) { return r.json(); }).then(function(sData) {
+                renderSoldBasic(sData.rows || []);
+            });
+        })
+        .catch(function(err) {
+            spinner.style.display = 'none';
+            loadIcon.style.animation = '';
+            document.getElementById('wl-load-btn').disabled = false;
+            errEl.textContent = 'Error loading analysis: ' + err;
+            errEl.style.display = '';
+        });
+};
+
+/* ── Column sorting (reusable) ── */
+var sortState = {};
+function initSort(tableId) {
+    var tbl = document.getElementById(tableId);
+    if (!tbl) return;
+    // Remove old listeners by re-cloning thead
+    tbl.querySelectorAll('thead th[data-col]').forEach(function(th) {
+        th.onclick = function() {
+            var col = parseInt(th.dataset.col, 10);
+            var key = tableId;
+            if (!sortState[key]) sortState[key] = {col: -1, asc: true};
+            sortState[key].asc = (sortState[key].col === col) ? !sortState[key].asc : true;
+            sortState[key].col = col;
+            tbl.querySelectorAll('thead th[data-col]').forEach(function(h) { h.dataset.arrow = ''; });
+            th.dataset.arrow = sortState[key].asc ? '\u25b2' : '\u25bc';
+            var tbody = tbl.querySelector('tbody');
+            var rows = Array.from(tbody.querySelectorAll('tr'));
+            var asc = sortState[key].asc;
+            rows.sort(function(a, b) {
+                var aCell = a.cells[col], bCell = b.cells[col];
+                var aV = (aCell && aCell.dataset.val != null && aCell.dataset.val !== '') ? aCell.dataset.val : (aCell ? aCell.textContent.trim() : '');
+                var bV = (bCell && bCell.dataset.val != null && bCell.dataset.val !== '') ? bCell.dataset.val : (bCell ? bCell.textContent.trim() : '');
+                var aN = parseFloat(aV), bN = parseFloat(bV);
+                if (!isNaN(aN) && !isNaN(bN)) return asc ? aN - bN : bN - aN;
+                return asc ? String(aV).localeCompare(String(bV)) : String(bV).localeCompare(String(aV));
+            });
+            rows.forEach(function(r) { tbody.appendChild(r); });
+        };
+    });
+}
+
+/* ── Init ── */
+loadWatchingList();
+loadSoldList();
+
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,549 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Single ETF — Return Comparison</h1>
+<p class="note">Enable any combination of the three ticker slots, pick a return type and period, then click <strong>Update Chart</strong>.</p>
+
+<!-- ── Ticker slots ───────────────────────────────────────── -->
+<div class="ticker-slots">
+
+    <!-- t1 — Portfolio -->
+    <div class="ticker-slot slot-t1" id="slot-t1">
+        <div class="slot-header">
+            <span class="slot-label t1-label">Portfolio</span>
+            <button class="slot-toggle enabled" id="toggle-t1" data-slot="t1">● Include</button>
+        </div>
+        <select id="ticker-select" class="ctrl-select">
+            <option value="">— select from portfolio —</option>
+            {% for _, row in portfolio.iterrows() %}
+            <option value="{{ row.ticker }}"
+                    data-tr="{{ '%.1f'|format(row.total_return_pct) if row.total_return_pct == row.total_return_pct else '0.0' }}">
+                {{ row.ticker }} — {{ (row.description[:30] if row.description else '') }} ({{ '%.1f'|format(row.total_return_pct) if row.total_return_pct == row.total_return_pct else '0.0' }}%)
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <!-- t2 — Custom -->
+    <div class="ticker-slot slot-t2 slot-disabled" id="slot-t2">
+        <div class="slot-header">
+            <span class="slot-label t2-label">Custom Ticker</span>
+            <button class="slot-toggle disabled" id="toggle-t2" data-slot="t2">○ Excluded</button>
+        </div>
+        <input type="text" id="ticker-custom" class="ctrl-input" list="custom-datalist"
+               placeholder="any symbol — e.g. SCHD, NVDA…"
+               autocomplete="off" spellcheck="false" maxlength="12"
+               style="text-transform: uppercase">
+        <datalist id="custom-datalist">
+            {% for _, row in portfolio.iterrows() %}
+            <option value="{{ row.ticker }}">{{ row.description[:35] if row.description else '' }}</option>
+            {% endfor %}
+        </datalist>
+    </div>
+
+    <!-- t3 — Compare To -->
+    <div class="ticker-slot slot-t3 slot-disabled" id="slot-t3">
+        <div class="slot-header">
+            <span class="slot-label t3-label">Compare To</span>
+            <button class="slot-toggle disabled" id="toggle-t3" data-slot="t3">○ Excluded</button>
+        </div>
+        <input type="text" id="compare-input" class="ctrl-input" list="compare-datalist"
+               placeholder="SPY, QQQ, SCHD…"
+               autocomplete="off" spellcheck="false" maxlength="12"
+               style="text-transform: uppercase">
+        <datalist id="compare-datalist">
+            <option value="SPY">SPY — S&amp;P 500</option>
+            <option value="QQQ">QQQ — Nasdaq 100</option>
+            <option value="IWM">IWM — Russell 2000</option>
+            <option value="DIA">DIA — Dow Jones</option>
+            <option value="BND">BND — Total Bond</option>
+            <option value="GLD">GLD — Gold</option>
+            <option value="VTI">VTI — Total US Market</option>
+            <option value="SCHD">SCHD — Dividend</option>
+            {% for _, row in portfolio.iterrows() %}
+            <option value="{{ row.ticker }}">{{ row.description[:35] if row.description else '' }}</option>
+            {% endfor %}
+        </datalist>
+    </div>
+
+</div><!-- /.ticker-slots -->
+
+<!-- ── Bottom controls ───────────────────────────────────── -->
+<div class="controls-bar controls-bar-bottom">
+
+    <!-- Return type -->
+    <div class="control-group">
+        <label class="ctrl-label">Return Type</label>
+        <div class="period-btns" id="mode-btns">
+            <button class="pbtn pbtn-active" data-mode="total">Total Return</button>
+            <button class="pbtn" data-mode="price">Price Only</button>
+            <button class="pbtn pbtn-compare" data-mode="both">Total &amp; Price</button>
+        </div>
+    </div>
+
+    <!-- Period buttons -->
+    <div class="control-group control-group-wide">
+        <label class="ctrl-label">Period</label>
+        <div class="period-btns" id="period-btns">
+            <button class="pbtn" data-period="1mo">1M</button>
+            <button class="pbtn" data-period="3mo">3M</button>
+            <button class="pbtn" data-period="6mo">6M</button>
+            <button class="pbtn" data-period="ytd">YTD</button>
+            <button class="pbtn pbtn-active" data-period="1y">1Y</button>
+            <button class="pbtn" data-period="2y">2Y</button>
+            <button class="pbtn" data-period="5y">5Y</button>
+            <button class="pbtn" data-period="max">Max</button>
+            <span class="pbtn-divider">|</span>
+            <button class="pbtn pbtn-year" data-period="2021">2021</button>
+            <button class="pbtn pbtn-year" data-period="2022">2022</button>
+            <button class="pbtn pbtn-year" data-period="2023">2023</button>
+            <button class="pbtn pbtn-year" data-period="2024">2024</button>
+            <button class="pbtn pbtn-year" data-period="2025">2025</button>
+        </div>
+    </div>
+
+    <button id="load-btn" class="btn load-btn">Update Chart</button>
+</div>
+
+<!-- ── Loading indicator ──────────────────────────────────── -->
+<div id="loading" class="loading" style="display:none">
+    <div class="spinner"></div> Fetching data from Yahoo Finance…
+</div>
+<div id="fetch-error" class="flash error" style="display:none"></div>
+
+<!-- ── Stats cards ───────────────────────────────────────── -->
+<div id="stats-area" style="display:none">
+    <div class="stats-grid" id="stats-grid"></div>
+</div>
+
+<!-- ── Chart ─────────────────────────────────────────────── -->
+<div id="chart-area" style="display:none">
+    <div id="etf-chart" class="chart"></div>
+</div>
+
+<!-- ── DB position info ──────────────────────────────────── -->
+<div id="position-area" style="display:none">
+    <h3 id="position-title">Position Details</h3>
+    <div class="pos-grid" id="pos-grid"></div>
+</div>
+
+<!-- ── Portfolio quick-pick table ────────────────────────── -->
+{% if portfolio is not none and portfolio|length > 0 %}
+<div class="quick-pick-section">
+    <h3>Quick Pick — All Holdings</h3>
+    <p class="note">Click any row to load that ticker's chart.</p>
+    <div class="table-wrapper" style="max-height:70vh;overflow-y:auto;">
+    <table id="pick-table">
+        <thead>
+            <tr>
+                <th>Ticker</th>
+                <th>Description</th>
+                <th>Type</th>
+                <th class="num">Invested</th>
+                <th class="num">Price Paid</th>
+                <th class="num">Curr Price</th>
+                <th class="num">Divs Rcvd</th>
+                <th class="num">Total Ret %</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for _, row in portfolio.iterrows() %}
+        {% set tr = row.total_return_pct if row.total_return_pct == row.total_return_pct else 0 %}
+        <tr class="pick-row" data-ticker="{{ row.ticker }}" title="Click to load {{ row.ticker }}">
+            <td><strong>{{ row.ticker }}</strong></td>
+            <td>{{ row.description[:45] if row.description else '' }}</td>
+            <td>{{ row.classification_type if row.classification_type else '' }}</td>
+            <td class="num">${{ "{:,.0f}".format(row.purchase_value) if row.purchase_value == row.purchase_value else '—' }}</td>
+            <td class="num">${{ "%.4f"|format(row.price_paid) if row.price_paid == row.price_paid else '—' }}</td>
+            <td class="num">${{ "%.4f"|format(row.current_price) if row.current_price == row.current_price else '—' }}</td>
+            <td class="num">${{ "{:,.2f}".format(row.total_divs_received) if row.total_divs_received == row.total_divs_received else '—' }}</td>
+            <td class="num {{ 'pos' if tr >= 0 else 'neg' }}"><strong>{{ "%.2f"|format(tr) }}%</strong></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- ── Styles ─────────────────────────────────────────────── -->
+<style>
+.note { color:#8899aa; font-size:.88rem; margin:.2rem 0 1rem; }
+
+/* ── Ticker slots row ─────────────────────────────────────── */
+.ticker-slots {
+    display:flex; gap:.9rem; flex-wrap:wrap; margin-bottom:.9rem;
+}
+.ticker-slot {
+    flex:1 1 220px; background:#1a2332; border:1px solid #2a3a4a;
+    border-radius:8px; padding:.8rem 1rem; border-top-width:3px;
+    transition: opacity .2s;
+}
+.slot-t1 { border-top-color:#7ecfff; }
+.slot-t2 { border-top-color:#a0f0c0; }
+.slot-t3 { border-top-color:#FFD700; }
+.slot-disabled { opacity:.4; }
+
+.slot-header {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:.55rem;
+}
+.slot-label {
+    font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; font-weight:600;
+}
+.t1-label { color:#7ecfff; }
+.t2-label { color:#a0f0c0; }
+.t3-label { color:#FFD700; }
+
+.slot-toggle {
+    font-size:.72rem; border-radius:3px; padding:.15rem .5rem; cursor:pointer;
+    border:1px solid; transition:all .15s;
+}
+.slot-toggle.enabled  { background:#0d2030; color:#7ecfff; border-color:#2a6aaa; }
+.slot-toggle.disabled { background:#0d1520; color:#556; border-color:#2a3a4a; }
+.slot-toggle:hover    { filter:brightness(1.25); }
+
+/* ── Bottom controls bar ──────────────────────────────────── */
+.controls-bar-bottom {
+    display:flex; align-items:flex-end; gap:1.2rem; flex-wrap:wrap;
+    background:#1a2332; border:1px solid #2a3a4a; border-radius:8px;
+    padding:.8rem 1.2rem; margin-bottom:1.2rem;
+}
+.control-group { display:flex; flex-direction:column; gap:.3rem; }
+.ctrl-label { font-size:.75rem; color:#8899aa; text-transform:uppercase; letter-spacing:.05em; }
+.ctrl-select {
+    background:#0d1520; color:#cdd9e5; border:1px solid #2a3a4a;
+    border-radius:5px; padding:.4rem .6rem; font-size:.93rem; width:100%;
+}
+.ctrl-input {
+    background:#0d1520; color:#cdd9e5; border:1px solid #2a3a4a;
+    border-radius:5px; padding:.4rem .6rem; font-size:.93rem; width:100%;
+    outline:none; transition:border-color .15s;
+}
+.ctrl-input:focus { border-color:#2a6aaa; }
+
+.period-btns { display:flex; gap:.3rem; flex-wrap:wrap; align-items:center; }
+.pbtn {
+    background:#0d1520; color:#8899aa; border:1px solid #2a3a4a;
+    border-radius:4px; padding:.3rem .65rem; font-size:.85rem; cursor:pointer;
+    transition:background .15s, color .15s;
+}
+.pbtn:hover { background:#2a3a4a; color:#cdd9e5; }
+.pbtn-active { background:#1a4a7a; color:#7ecfff; border-color:#2a6aaa; }
+.pbtn-year { color:#c8b4ff; border-color:#4a3a6a; }
+.pbtn-year:hover { background:#2a1a4a; color:#e0d0ff; }
+.pbtn-year.pbtn-active { background:#3a1a6a; color:#e0d0ff; border-color:#7a4aaa; }
+.pbtn-compare { color:#ffcc66; border-color:#5a4a1a; }
+.pbtn-compare:hover { background:#2a2010; color:#ffe0a0; }
+.pbtn-compare.pbtn-active { background:#3a2d00; color:#ffe08a; border-color:#aa8a00; }
+.pbtn-divider { color:#334; padding:0 .2rem; line-height:1; align-self:center; font-size:1.1rem; }
+.control-group-wide { flex:1 1 auto; }
+.load-btn { align-self:flex-end; padding:.45rem 1.2rem; font-size:.95rem; }
+
+/* Loading */
+.loading { display:flex; align-items:center; gap:.7rem; color:#8899aa; padding:.6rem 0; }
+.spinner {
+    width:18px; height:18px; border:2px solid #334; border-top-color:#7ecfff;
+    border-radius:50%; animation:spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Stats cards */
+.stats-grid { display:flex; flex-wrap:wrap; gap:.7rem; margin:1rem 0 1.5rem; }
+.stat-card {
+    background:#1e2a3a; border:1px solid #334; border-radius:7px;
+    padding:.65rem 1rem; min-width:130px; text-align:center;
+}
+.stat-card.highlight { border-color:#2a6aaa; background:#152030; }
+.stat-card.pos-card  { border-color:#2a5a3a; }
+.stat-card.neg-card  { border-color:#5a2a2a; }
+.stat-card.db-card   { border-color:#555; border-style:dashed; }
+.stat-label { font-size:.72rem; color:#8899aa; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.25rem; }
+.stat-value { font-size:1.2rem; font-weight:bold; color:#7ecfff; }
+.stat-sub   { font-size:.75rem; color:#8899aa; margin-top:.15rem; }
+.stat-sep   { width:100%; height:1px; background:#2a3a4a; margin:.4rem 0; }
+.pos { color:#4dff91; } .neg { color:#ff6b6b; }
+
+/* Position panel */
+.pos-grid {
+    display:flex; flex-wrap:wrap; gap:.7rem; margin:.75rem 0 1.5rem;
+    background:#161e2a; border:1px solid #2a3a4a; border-radius:8px; padding:.8rem 1rem;
+}
+.pos-item { min-width:130px; }
+.pos-item-label { font-size:.72rem; color:#8899aa; text-transform:uppercase; letter-spacing:.04em; }
+.pos-item-value { font-size:1rem; font-weight:600; color:#cdd9e5; margin-top:.1rem; }
+
+/* Quick pick table */
+.quick-pick-section { margin-top:2.5rem; }
+.quick-pick-section h3 { margin-bottom:.25rem; }
+.pick-row { cursor:pointer; }
+.pick-row:hover td { background:#1e2a3a !important; }
+.pick-row.active-row td { background:#152a40 !important; }
+td.num { text-align:right; }
+</style>
+
+<!-- ── JavaScript ─────────────────────────────────────────── -->
+<script>
+(function () {
+    var activePeriod = '1y';
+    var activeMode   = 'total';
+
+    var tickerSelect = document.getElementById('ticker-select');
+    var tickerCustom = document.getElementById('ticker-custom');
+    var compareInput = document.getElementById('compare-input');
+
+    // ── Per-slot enable state ────────────────────────────────
+    // t1 starts enabled (portfolio), t2 starts disabled (empty custom), t3 starts enabled (SPY)
+    var slotEnabled = { t1: true, t2: false, t3: false };
+
+    function setSlotEnabled(slot, on) {
+        slotEnabled[slot] = on;
+        var btn  = document.getElementById('toggle-' + slot);
+        var wrap = document.getElementById('slot-' + slot);
+        if (on) {
+            btn.textContent = '● Include';
+            btn.className   = 'slot-toggle enabled';
+            wrap.classList.remove('slot-disabled');
+        } else {
+            btn.textContent = '○ Excluded';
+            btn.className   = 'slot-toggle disabled';
+            wrap.classList.add('slot-disabled');
+        }
+    }
+
+    // Toggle buttons
+    ['t1', 't2', 't3'].forEach(function(slot) {
+        document.getElementById('toggle-' + slot).addEventListener('click', function() {
+            setSlotEnabled(slot, !slotEnabled[slot]);
+        });
+    });
+
+    // Period button toggle
+    document.querySelectorAll('#period-btns .pbtn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('#period-btns .pbtn').forEach(function(b){ b.classList.remove('pbtn-active'); });
+            this.classList.add('pbtn-active');
+            activePeriod = this.getAttribute('data-period');
+            loadChart();
+        });
+    });
+
+    // Mode button toggle
+    document.querySelectorAll('#mode-btns .pbtn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('#mode-btns .pbtn').forEach(function(b){ b.classList.remove('pbtn-active'); });
+            this.classList.add('pbtn-active');
+            activeMode = this.getAttribute('data-mode');
+            loadChart();
+        });
+    });
+
+    // Update Chart button
+    document.getElementById('load-btn').addEventListener('click', loadChart);
+
+    // Portfolio dropdown — auto-enable t1 when a ticker is selected
+    if (tickerSelect) {
+        tickerSelect.addEventListener('change', function() {
+            if (this.value) setSlotEnabled('t1', true);
+            loadChart();
+        });
+    }
+
+    // Custom ticker — auto-enable t2 when typed, auto-disable when cleared; Enter to load
+    if (tickerCustom) {
+        tickerCustom.addEventListener('input', function() {
+            var hasVal = this.value.trim().length > 0;
+            setSlotEnabled('t2', hasVal);
+        });
+        tickerCustom.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); loadChart(); }
+        });
+    }
+
+    // Compare input — auto-enable t3 when typed, auto-disable when cleared; Enter to load
+    if (compareInput) {
+        compareInput.addEventListener('input', function() {
+            setSlotEnabled('t3', this.value.trim().length > 0);
+        });
+        compareInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); loadChart(); }
+        });
+    }
+
+    // Quick-pick row click — fills t1 dropdown, enables t1
+    document.querySelectorAll('.pick-row').forEach(function(row) {
+        row.addEventListener('click', function() {
+            var tkr = this.getAttribute('data-ticker');
+            if (tickerSelect) tickerSelect.value = tkr;
+            setSlotEnabled('t1', true);
+            document.querySelectorAll('.pick-row').forEach(function(r){ r.classList.remove('active-row'); });
+            this.classList.add('active-row');
+            loadChart();
+        });
+    });
+
+    // ── Build t1/t2/t3 values ────────────────────────────────
+    function getSlotValues() {
+        return {
+            t1: (slotEnabled.t1 && tickerSelect ? tickerSelect.value.trim() : ''),
+            t2: (slotEnabled.t2 && tickerCustom ? tickerCustom.value.trim().toUpperCase() : ''),
+            t3: (slotEnabled.t3 && compareInput ? compareInput.value.trim().toUpperCase() : ''),
+        };
+    }
+
+    function loadChart() {
+        var sv = getSlotValues();
+        var activeCount = [sv.t1, sv.t2, sv.t3].filter(function(v){ return v; }).length;
+        if (activeCount === 0) {
+            showError('Please enable at least one ticker slot with a value.');
+            return;
+        }
+
+        setLoading(true);
+        clearError();
+
+        var url = '/single_etf_return/data'
+                + '?t1='     + encodeURIComponent(sv.t1)
+                + '&t2='     + encodeURIComponent(sv.t2)
+                + '&t3='     + encodeURIComponent(sv.t3)
+                + '&period=' + encodeURIComponent(activePeriod)
+                + '&mode='   + encodeURIComponent(activeMode)
+                + '&_='      + Date.now();
+
+        fetch(url, {cache: 'no-store'})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                setLoading(false);
+                if (data.error) { showError(data.error); return; }
+                renderChart(data.chart);
+                renderStats(data.stats);
+                renderPosition(data.db);
+            })
+            .catch(function(err) {
+                setLoading(false);
+                showError('Network error: ' + err.message);
+            });
+    }
+
+    function renderChart(figData) {
+        var el = document.getElementById('etf-chart');
+        document.getElementById('chart-area').style.display = 'block';
+        Plotly.purge(el);
+        Plotly.newPlot(el, figData.data, figData.layout, {responsive: true});
+    }
+
+    // ── Stats cards — new multi-ticker format ────────────────
+    function renderStats(s) {
+        if (!s || !s.tickers) return;
+        var area = document.getElementById('stats-area');
+        area.style.display = 'block';
+
+        function fmt(v, suffix) {
+            if (v === null || v === undefined) return '—';
+            return parseFloat(v).toFixed(2) + (suffix || '');
+        }
+        function retClass(v) {
+            if (v === null || v === undefined) return '';
+            return parseFloat(v) >= 0 ? 'pos-card' : 'neg-card';
+        }
+
+        var html = '';
+        html += card('Period', s.period || '—', '', 'highlight');
+
+        // Per-ticker block
+        s.tickers.forEach(function(t) {
+            var isDb  = t.note && t.note.indexOf('DB') >= 0;
+            var extra = isDb ? 'db-card' : retClass(t.ret);
+
+            html += card(t.label + ' Return',
+                         fmt(t.ret, '%'),
+                         isDb ? 'DB snapshot' : (s.mode === 'price' ? 'price only' : 'total'),
+                         extra);
+
+            if (t.price_ret !== null && t.price_ret !== undefined) {
+                html += card(t.label + ' Price',    fmt(t.price_ret,   '%'), 'no divs',    retClass(t.price_ret));
+                html += card(t.label + ' Div',      fmt(t.div_contrib, '%'), 'contribution',
+                             t.div_contrib !== null && parseFloat(t.div_contrib) >= 0 ? 'pos-card' : 'neg-card');
+            }
+            if (t.ann !== null && t.ann !== undefined) {
+                html += card(t.label + ' Ann.',  fmt(t.ann, '%'), 'annualized', retClass(t.ann));
+            }
+            if (t.mdd !== null && t.mdd !== undefined) {
+                html += card(t.label + ' Max DD', fmt(t.mdd, '%'), 'max drawdown', 'neg-card');
+            }
+            // visual separator between tickers
+            html += '<div class="stat-sep"></div>';
+        });
+
+        // Pairwise alphas
+        if (s.alphas && s.alphas.length > 0) {
+            s.alphas.forEach(function(a) {
+                html += card('Alpha: ' + a.label,
+                             fmt(a.value, '%'),
+                             'outperformance',
+                             parseFloat(a.value) >= 0 ? 'pos-card' : 'neg-card');
+            });
+        }
+
+        document.getElementById('stats-grid').innerHTML = html;
+    }
+
+    function card(label, value, sub, extraClass) {
+        return '<div class="stat-card ' + (extraClass || '') + '">'
+             + '<div class="stat-label">' + label + '</div>'
+             + '<div class="stat-value">' + value + '</div>'
+             + (sub ? '<div class="stat-sub">' + sub + '</div>' : '')
+             + '</div>';
+    }
+
+    function renderPosition(db) {
+        if (!db || !db.description) {
+            document.getElementById('position-area').style.display = 'none';
+            return;
+        }
+        var area = document.getElementById('position-area');
+        area.style.display = 'block';
+        document.getElementById('position-title').textContent = db.description + ' — Portfolio Position';
+
+        function fmt$(v)  { return v !== null && v !== undefined ? '$' + parseFloat(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:4}) : '—'; }
+        function fmtPct(v){ return v !== null && v !== undefined ? parseFloat(v).toFixed(2) + '%' : '—'; }
+
+        var tr_pct = db.total_return_pct;
+        var tr_cls = (tr_pct !== null && parseFloat(tr_pct) >= 0) ? 'pos' : 'neg';
+
+        var items = [
+            ['Price Paid',      fmt$(db.price_paid)],
+            ['Current Price',   fmt$(db.current_price)],
+            ['Shares',          db.shares !== null ? parseFloat(db.shares).toFixed(3) : '—'],
+            ['Invested',        fmt$(db.purchase_value)],
+            ['Current Value',   fmt$(db.current_value)],
+            ['Price Gain/Loss', fmt$(db.price_gain_loss)],
+            ['Total Divs Rcvd', fmt$(db.total_divs)],
+            ['Total Return $',  fmt$(db.total_return_dollar)],
+            ['Total Return %',  '<span class="' + tr_cls + '">' + fmtPct(tr_pct) + '</span>'],
+            ['Yield on Cost',   fmtPct(db.yield_on_cost_pct)],
+            ['Est. Annual Inc', fmt$(db.est_annual_income)],
+        ];
+
+        document.getElementById('pos-grid').innerHTML = items.map(function(it) {
+            return '<div class="pos-item"><div class="pos-item-label">' + it[0]
+                 + '</div><div class="pos-item-value">' + it[1] + '</div></div>';
+        }).join('');
+    }
+
+    function setLoading(on) {
+        document.getElementById('loading').style.display = on ? 'flex' : 'none';
+    }
+    function showError(msg) {
+        var el = document.getElementById('fetch-error');
+        el.textContent = msg; el.style.display = 'block';
+    }
+    function clearError() {
+        var el = document.getElementById('fetch-error');
+        el.textContent = ''; el.style.display = 'none';
+    }
+
+    // Auto-load on page open (t1 + t3 are enabled by default)
+    loadChart();
+})();
+</script>
+{% endblock %}

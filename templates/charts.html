@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Income &amp; Payout Charts</h1>
+
+<!-- Income tracking charts (from populate_income_tracking snapshots) -->
+{% if charts.monthly %}
+<h2>Monthly Dividend Income Over Time</h2>
+<div id="chart-monthly" class="chart"></div>
+{% endif %}
+
+{% if charts.annual %}
+<h2>Estimated Annual Income Over Time</h2>
+<div id="chart-annual" class="chart"></div>
+{% endif %}
+
+{% if charts.div_trend %}
+<h2>YTD &amp; Total Divs Received — Import History</h2>
+<div id="chart-div-trend" class="chart"></div>
+{% endif %}
+
+{% if not charts.monthly and not charts.annual and not charts.div_trend %}
+<p>No income tracking data yet. Import data and use Data Management → Populate Income Tracking first.</p>
+{% endif %}
+
+<h2 style="margin-top:2.5rem">Weekly Payout History</h2>
+{% if charts.weekly %}
+<div id="chart-weekly" class="chart"></div>
+{% else %}
+<p>No weekly payout data yet. Go to Payouts → Import Weekly from Excel.</p>
+{% endif %}
+
+<h2 style="margin-top:2rem">Monthly Payout History</h2>
+{% if charts.monthly_payout %}
+<div id="chart-monthly-payout" class="chart"></div>
+{% else %}
+<p>No monthly payout data yet. Go to Payouts → Import Monthly from Excel.</p>
+{% endif %}
+
+<script>
+{% if charts.monthly %}
+(function() {
+    var fig = {{ charts.monthly | safe }};
+    Plotly.newPlot('chart-monthly', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.annual %}
+(function() {
+    var fig = {{ charts.annual | safe }};
+    Plotly.newPlot('chart-annual', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.div_trend %}
+(function() {
+    var fig = {{ charts.div_trend | safe }};
+    Plotly.newPlot('chart-div-trend', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.weekly %}
+(function() {
+    var fig = {{ charts.weekly | safe }};
+    Plotly.newPlot('chart-weekly', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.monthly_payout %}
+(function() {
+    var fig = {{ charts.monthly_payout | safe }};
+    Plotly.newPlot('chart-monthly-payout', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+</script>
+{% endblock %}

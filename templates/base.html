@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <nav>
+        <a href="{{ url_for('index') }}"             class="{{ 'nav-active' if request.endpoint == 'index'            else '' }}">Dashboard</a>
+        <a href="{{ url_for('manage') }}"            class="{{ 'nav-active' if request.endpoint == 'manage'           else '' }}">Data Management</a>
+        <a href="{{ url_for('payouts') }}"           class="{{ 'nav-active' if request.endpoint == 'payouts'          else '' }}">Payouts</a>
+        <a href="{{ url_for('dividend_analysis') }}" class="{{ 'nav-active' if request.endpoint == 'dividend_analysis' else '' }}">Dividend Analysis</a>
+<a href="{{ url_for('total_return') }}"      class="{{ 'nav-active' if request.endpoint == 'total_return'      else '' }}">Total Return</a>
+        <a href="{{ url_for('single_etf_return') }}" class="{{ 'nav-active' if request.endpoint in ('single_etf_return', 'single_etf_data') else '' }}">Single ETF Return</a>
+        <a href="{{ url_for('charts') }}"            class="{{ 'nav-active' if request.endpoint == 'charts'           else '' }}">Income Charts</a>
+        <a href="{{ url_for('div_calendar') }}"      class="{{ 'nav-active' if request.endpoint == 'div_calendar'      else '' }}">Div Calendar</a>
+        <a href="{{ url_for('buy_sell_signals') }}" class="{{ 'nav-active' if request.endpoint in ('buy_sell_signals', 'buy_sell_signals_data') else '' }}">Buy/Sell</a>
+        <a href="{{ url_for('nav_erosion') }}" class="{{ 'nav-active' if request.endpoint in ('nav_erosion', 'nav_erosion_data') else '' }}">NAV Erosion</a>
+        <a href="{{ url_for('nav_erosion_portfolio') }}" class="{{ 'nav-active' if request.endpoint in ('nav_erosion_portfolio', 'nav_erosion_portfolio_list', 'nav_erosion_portfolio_data') else '' }}">NAV Portfolio</a>
+        <a href="{{ url_for('portfolio_income_sim') }}" class="{{ 'nav-active' if request.endpoint in ('portfolio_income_sim', 'portfolio_income_sim_list', 'portfolio_income_sim_run', 'portfolio_income_sim_saved', 'portfolio_income_sim_saved_item') else '' }}">Income Sim</a>
+        <a href="{{ url_for('watchlist') }}" class="{{ 'nav-active' if request.endpoint in ('watchlist', 'watchlist_watching_list', 'watchlist_sold_list', 'watchlist_data') else '' }}">Watchlist</a>
+    </nav>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

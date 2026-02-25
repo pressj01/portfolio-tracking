@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dividend Charts</h1>
+<p class="section-note">Visual breakdown of YTD Divs, Total Divs Received, and cost recovery by ticker.</p>
+
+{% if charts %}
+
+    {% if charts.total_divs %}
+    <h2>Total Dividends Received by Ticker</h2>
+    <div id="chart-total-divs" class="chart"></div>
+    {% endif %}
+
+    {% if charts.ytd_divs %}
+    <h2>YTD Dividends by Ticker</h2>
+    <div id="chart-ytd-divs" class="chart"></div>
+    {% endif %}
+
+    {% if charts.paid_for_itself %}
+    <h2>Paid For Itself — % of Cost Recovered</h2>
+    <p class="section-note">Gold dashed line at 100% marks tickers that have fully paid for themselves through dividends.</p>
+    <div id="chart-paid" class="chart"></div>
+    {% endif %}
+
+    {% if charts.comparison %}
+    <h2>YTD Divs vs Total Divs Received (Top 20)</h2>
+    <div id="chart-comparison" class="chart"></div>
+    {% endif %}
+
+    {% if charts.by_type %}
+    <h2>Total Dividends Received by Asset Type</h2>
+    <div id="chart-by-type" class="chart"></div>
+    {% endif %}
+
+<script>
+{% if charts.total_divs %}
+(function() {
+    var fig = {{ charts.total_divs | safe }};
+    Plotly.newPlot('chart-total-divs', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.ytd_divs %}
+(function() {
+    var fig = {{ charts.ytd_divs | safe }};
+    Plotly.newPlot('chart-ytd-divs', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.paid_for_itself %}
+(function() {
+    var fig = {{ charts.paid_for_itself | safe }};
+    Plotly.newPlot('chart-paid', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.comparison %}
+(function() {
+    var fig = {{ charts.comparison | safe }};
+    Plotly.newPlot('chart-comparison', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+
+{% if charts.by_type %}
+(function() {
+    var fig = {{ charts.by_type | safe }};
+    Plotly.newPlot('chart-by-type', fig.data, fig.layout, {responsive: true});
+})();
+{% endif %}
+</script>
+
+{% else %}
+<p>No dividend data available. Import data from Excel first (Dashboard → Import Data).</p>
+{% endif %}
+
+<style>
+.section-note {
+    color: #8899aa;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+h2 { margin-top: 2rem; }
+</style>
+{% endblock %}

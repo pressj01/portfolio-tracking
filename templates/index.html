@@ -1,0 +1,544 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Portfolio Dashboard</h1>
+
+<div class="actions">
+    <form action="{{ url_for('do_import') }}" method="post">
+        <button type="submit" class="btn">Import Data from Excel</button>
+    </form>
+    <span class="info">{{ row_count }} rows in all_account_info</span>
+</div>
+
+<!-- ── Portfolio Stats ───────────────────────────────────── -->
+{% if port_stats %}
+<div class="ps-grid">
+    <div class="ps-card">
+        <span class="ps-label">Yield on Cost</span>
+        <span class="ps-value">{{ "%.2f"|format(port_stats.yield_on_cost) }}%</span>
+    </div>
+    <div class="ps-card">
+        <span class="ps-label">Current Yield</span>
+        <span class="ps-value">{{ "%.2f"|format(port_stats.current_yield) }}%</span>
+    </div>
+    <div class="ps-card">
+        <span class="ps-label">$ Per Hour</span>
+        <span class="ps-value">${{ "%.4f"|format(port_stats.dollars_per_hour) }}</span>
+    </div>
+    <div class="ps-card">
+        <span class="ps-label">Est. Annual Income</span>
+        <span class="ps-value">${{ "{:,.2f}".format(port_stats.total_annual) }}</span>
+    </div>
+    <div class="ps-card">
+        <span class="ps-label">Total Divs Received</span>
+        <span class="ps-value">${{ "{:,.2f}".format(port_stats.total_divs) }}</span>
+    </div>
+    <div class="ps-card {% if port_stats.total_gain >= 0 %}ps-pos{% else %}ps-neg{% endif %}">
+        <span class="ps-label">Unrealized Gain/Loss</span>
+        <span class="ps-value">{{ "+" if port_stats.total_gain >= 0 else "" }}${{ "{:,.2f}".format(port_stats.total_gain) }}</span>
+    </div>
+    <div class="ps-card">
+        <span class="ps-label">Portfolio Value</span>
+        <span class="ps-value">${{ "{:,.2f}".format(port_stats.total_current) }}</span>
+    </div>
+    <div class="ps-card">
+        <span class="ps-label">Cost Basis</span>
+        <span class="ps-value">${{ "{:,.2f}".format(port_stats.total_purchase) }}</span>
+    </div>
+    <div class="ps-card {% if port_stats.total_return_dollar >= 0 %}ps-pos{% else %}ps-neg{% endif %}">
+        <span class="ps-label">Total Return</span>
+        <span class="ps-value">{{ "+" if port_stats.total_return_dollar >= 0 else "" }}${{ "{:,.2f}".format(port_stats.total_return_dollar) }}</span>
+    </div>
+    <div class="ps-card {% if port_stats.total_return_pct >= 0 %}ps-pos{% else %}ps-neg{% endif %}">
+        <span class="ps-label">Total Return %</span>
+        <span class="ps-value">{{ "+" if port_stats.total_return_pct >= 0 else "" }}{{ "%.2f"|format(port_stats.total_return_pct) }}%</span>
+    </div>
+</div>
+{% endif %}
+
+<!-- ── State Street Sector ETFs ──────────────────────────── -->
+<div class="dc-section-header" style="margin-top:1.4rem">
+    <span class="dc-section-title">State Street Sector ETFs</span>
+    <a href="{{ url_for('buy_sell_signals') }}" class="dc-see-all">Full signals &rarr;</a>
+</div>
+
+<div id="se-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
+                          gap:8px;margin-bottom:1.8rem">
+    <!-- spinner while loading -->
+    <div id="se-spinner" style="grid-column:1/-1;display:flex;align-items:center;
+                                  gap:0.7rem;padding:0.8rem 0;color:#666;font-size:0.85rem">
+        <div style="width:20px;height:20px;border:3px solid #2a2a3e;border-top-color:#7ecfff;
+                    border-radius:50%;animation:se-spin 0.75s linear infinite;flex-shrink:0"></div>
+        Loading sector data&hellip;
+    </div>
+</div>
+<style>
+@keyframes se-spin { to { transform:rotate(360deg); } }
+.se-card {
+    background: #1a1e2e;
+    border-radius: 7px;
+    border-top: 3px solid #0f3460;
+    padding: 9px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.se-card.se-buy  { border-top-color: #00c853; }
+.se-card.se-sell { border-top-color: #d50000; }
+.se-card.se-neu  { border-top-color: #f9a825; }
+.se-ticker { font-size: 1.1rem; font-weight: 700; color: #e0e8f5; }
+.se-name   { font-size: .62rem; color: #556677; margin-bottom: 3px;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.se-price  { font-size: .92rem; font-weight: 600; color: #e0e8f5; }
+.se-chg    { font-size: .75rem; font-weight: 600; }
+.se-chg.up   { color: #00c853; }
+.se-chg.down { color: #e05555; }
+.se-chg.flat { color: #888; }
+.se-sig {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    align-self: flex-start;
+}
+.se-sig.BUY     { background:#00c853; color:#000; }
+.se-sig.SELL    { background:#d50000; color:#fff; }
+.se-sig.NEUTRAL { background:#f9a825; color:#000; }
+</style>
+
+<script>
+(function () {
+    fetch('/sector_etfs/data')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var grid    = document.getElementById('se-grid');
+            var spinner = document.getElementById('se-spinner');
+            if (spinner) spinner.remove();
+
+            if (data.error || !data.results) return;
+
+            data.results.forEach(function (r) {
+                var chgCls  = r.change_pct == null ? 'flat' : (r.change_pct > 0 ? 'up' : (r.change_pct < 0 ? 'down' : 'flat'));
+                var chgSign = r.change_pct != null && r.change_pct > 0 ? '+' : '';
+                var chgTxt  = r.change_pct != null ? chgSign + r.change_pct.toFixed(2) + '%' : '—';
+                var sigCls  = r.signal === 'BUY' ? 'se-buy' : (r.signal === 'SELL' ? 'se-sell' : 'se-neu');
+
+                var card = document.createElement('div');
+                card.className = 'se-card ' + sigCls;
+                card.innerHTML =
+                    '<span class="se-ticker">' + r.ticker + '</span>' +
+                    '<span class="se-name">'   + r.name   + '</span>' +
+                    '<span class="se-price">'  + (r.price != null ? '$' + r.price.toFixed(2) : '—') + '</span>' +
+                    '<span class="se-chg ' + chgCls + '">' + chgTxt + '</span>' +
+                    '<span class="se-sig ' + r.signal + '">' + r.signal + '</span>';
+                grid.appendChild(card);
+            });
+        })
+        .catch(function () {
+            var spinner = document.getElementById('se-spinner');
+            if (spinner) spinner.textContent = 'Could not load sector data.';
+        });
+})();
+</script>
+
+<!-- ── Dividend Calendar Preview ─────────────────────────── -->
+{% if cal_events %}
+<div class="dc-section-header">
+    <span class="dc-section-title">Recent &amp; upcoming ex-dividend events</span>
+    <a href="{{ url_for('div_calendar') }}" class="dc-see-all">See all &rarr;</a>
+</div>
+<div class="dc-grid" id="dc-preview-grid">
+    {% for ev in cal_events %}
+    <div class="dc-card" style="border-left-color: {{ ev.color }};"
+         data-date="{{ ev.date }}" data-today="{{ today }}"
+         data-ticker="{{ ev.ticker }}" data-freq="{{ ev.freq }}">
+        <div class="dc-date-col">
+            <span class="dc-day">{{ ev.day }}</span>
+            <span class="dc-month">{{ ev.month }}</span>
+            <span class="dc-wday">{{ ev.weekday }}</span>
+        </div>
+        <div class="dc-body">
+            <div class="dc-label">Ex-Dividend Date</div>
+            <div class="dc-ticker-row">
+                <div class="dc-icon" style="background: {{ ev.color }}22; color: {{ ev.color }};">
+                    {{ ev.ticker[0] }}
+                </div>
+                <div class="dc-ticker-info">
+                    <span class="dc-ticker">{{ ev.ticker }}</span>
+                    <span class="dc-desc">{{ ev.description[:45] }}{% if ev.description|length > 45 %}…{% endif %}</span>
+                </div>
+            </div>
+            <div class="dc-dates-row">
+                <div class="dc-date-chip dc-exdiv-chip">
+                    <span class="dc-chip-label">Ex-Div</span>
+                    <span class="dc-chip-val">{{ ev.month }} {{ ev.day }}</span>
+                </div>
+                <div class="dc-date-chip dc-pay-chip" id="idx-pay-{{ ev.ticker }}">
+                    <span class="dc-chip-label">Pay Date</span>
+                    <span class="dc-chip-val dc-pay-val">—</span>
+                </div>
+            </div>
+            <div class="dc-amount">
+                {% if ev.amount is not none %}${{ ev.amount }}/share{% endif %}
+                {% if ev.freq_label %}<span class="dc-freq">, {{ ev.freq_label }}</span>{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<style>
+/* Portfolio stats strip */
+.ps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 1.8rem;
+}
+.ps-card {
+    background: #1a1e2e;
+    border-radius: 7px;
+    border-top: 3px solid #0f3460;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.ps-label {
+    font-size: .68rem;
+    color: #556677;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.ps-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #e0e8f5;
+}
+.ps-pos .ps-value { color: #00c9a7; }
+.ps-neg .ps-value { color: #e94560; }
+.ps-pos { border-top-color: #00c9a7; }
+.ps-neg { border-top-color: #e94560; }
+
+.dc-section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin: 1.8rem 0 .75rem;
+}
+.dc-section-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #c8d4e0;
+}
+.dc-see-all {
+    font-size: .85rem;
+    color: #7ecfff;
+    text-decoration: none;
+}
+.dc-see-all:hover { text-decoration: underline; }
+.dc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 10px;
+    margin-bottom: 2.2rem;
+}
+.dc-card {
+    background: #1a1e2e;
+    border-radius: 8px;
+    border-left: 4px solid #00c9a7;
+    padding: 13px 14px;
+    display: flex;
+    gap: 13px;
+    align-items: flex-start;
+}
+.dc-date-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 34px;
+    padding-top: 2px;
+}
+.dc-day   { font-size: 1.65rem; font-weight: 700; line-height: 1; color: #e0e8f5; }
+.dc-month { font-size: .7rem;  color: #8899aa; text-transform: uppercase; letter-spacing: .04em; }
+.dc-wday  { font-size: .65rem; color: #5a6a7a; }
+.dc-body  { flex: 1; min-width: 0; }
+.dc-label {
+    font-size: .62rem;
+    color: #00c9a7;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 5px;
+}
+.dc-ticker-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+.dc-icon {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .7rem; font-weight: 700;
+    flex-shrink: 0;
+}
+.dc-ticker-info { min-width: 0; }
+.dc-ticker {
+    font-weight: 700;
+    font-size: .9rem;
+    color: #e0e8f5;
+    margin-right: 5px;
+}
+.dc-desc {
+    font-size: .73rem;
+    color: #8899aa;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dc-amount { font-size: .78rem; color: #7a8899; }
+.dc-freq   { color: #5a6a7a; }
+/* Date chips */
+.dc-dates-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+.dc-date-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #11151f;
+    border-radius: 5px;
+    padding: 3px 8px;
+    min-width: 68px;
+}
+.dc-exdiv-chip { border-top: 2px solid #334455; }
+.dc-pay-chip   { border-top: 2px solid #00c9a7; }
+.dc-chip-label {
+    font-size: .58rem;
+    color: #556677;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.dc-chip-val              { font-size: .82rem; color: #b0c0d0; font-weight: 500; }
+.dc-chip-val.dc-real      { color: #00c9a7; font-weight: 600; }
+.dc-chip-val.dc-est       { color: #7ecfff; }
+.dc-chip-val.dc-paid-out  { color: #00e89a; font-weight: 700; }
+/* paid cards */
+.dc-card.dc-paid { opacity: .72; border-left-color: #2a6655 !important; }
+.dc-card.dc-paid .dc-pay-chip { border-top-color: #2a6655; }
+.dc-paid-badge {
+    font-size: .62rem; color: #2a9975; font-weight: 600;
+    letter-spacing: .04em; margin-left: 4px; vertical-align: middle;
+}
+</style>
+
+<script>
+(function () {
+    var cards = Array.from(document.querySelectorAll("#dc-preview-grid .dc-card"));
+    if (!cards.length) return;
+    var tickersList = cards.map(function(c){ return c.dataset.ticker; }).join(",");
+    var freqsList   = cards.map(function(c){ return c.dataset.ticker+":"+(c.dataset.freq||"")+":"+(c.dataset.date||""); }).join(",");
+
+    function fmtDate(iso) {
+        var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        var p = iso.split("-");
+        return months[parseInt(p[1],10)-1] + " " + parseInt(p[2],10);
+    }
+
+    var grid     = document.getElementById("dc-preview-grid");
+    var todayStr = "{{ today }}";
+
+    // Initialise pay-date fallback to ex-div date
+    cards.forEach(function(c){ c.dataset.payDate = c.dataset.date; });
+
+    fetch("/div_calendar/paydates?tickers=" + encodeURIComponent(tickersList)
+          + "&freqs=" + encodeURIComponent(freqsList))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            cards.forEach(function(c){
+                var sym   = c.dataset.ticker;
+                var valEl = c.querySelector(".dc-pay-val");
+                if (!valEl) return;
+                var rec = data[sym];
+                if (rec && rec.pay_date) {
+                    c.dataset.payDate = rec.pay_date;
+                    var isPast = rec.pay_date < todayStr;
+                    valEl.textContent = fmtDate(rec.pay_date) + (rec.estimated ? " *" : "");
+                    valEl.className   = "dc-chip-val " + (isPast ? "dc-paid-out" : "dc-est");
+                } else {
+                    valEl.textContent = "N/A";
+                }
+            });
+            // Re-sort preview cards by pay date
+            cards.sort(function(a,b){
+                var da = a.dataset.payDate, db = b.dataset.payDate;
+                return da < db ? -1 : da > db ? 1 : 0;
+            });
+            cards.forEach(function(c){ grid.appendChild(c); });
+
+            // Mark already-paid cards
+            var now      = new Date(todayStr + "T00:00:00");
+            var dow      = now.getDay();
+            var monday   = new Date(now);
+            monday.setDate(now.getDate() - ((dow + 6) % 7));
+            var monthStart   = new Date(now.getFullYear(), now.getMonth(), 1);
+            var weekStartIso = monday.toISOString().slice(0, 10);
+            var monthStartIso= monthStart.toISOString().slice(0, 10);
+            cards.forEach(function(c){
+                var pd = c.dataset.payDate;
+                if (!pd || pd >= todayStr) return;
+                var isPaidWeek  = pd >= weekStartIso;
+                var isPaidMonth = pd >= monthStartIso;
+                if (isPaidWeek || isPaidMonth) {
+                    c.classList.add("dc-paid");
+                    var payVal = c.querySelector(".dc-pay-val");
+                    if (payVal) payVal.classList.add("dc-paid-out");
+                    var ticker = c.querySelector(".dc-ticker");
+                    if (ticker && !ticker.querySelector(".dc-paid-badge")) {
+                        var badge = document.createElement("span");
+                        badge.className   = "dc-paid-badge";
+                        badge.textContent = isPaidWeek ? "✓ paid this week" : "✓ paid this month";
+                        ticker.parentNode.appendChild(badge);
+                    }
+                }
+            });
+        })
+        .catch(function(){});
+})();
+</script>
+
+{% if data is not none and data|length > 0 %}
+<div id="top-scroll-bar" style="overflow-x:auto;overflow-y:hidden;height:14px;border-radius:6px 6px 0 0;">
+    <div id="top-scroll-inner" style="height:1px;"></div>
+</div>
+<div class="table-wrapper" id="table-wrapper" style="max-height:70vh;overflow-y:auto;">
+    <table id="data-table">
+        <thead>
+            <tr>
+                {% for col in data.columns %}
+                <th class="sortable{% if loop.index0 < 2 %} col-frozen{% endif %}"
+                    data-col="{{ loop.index0 }}" data-colname="{{ col }}"
+                    {% if loop.index0 < 2 %}data-freeze="{{ loop.index0 }}"{% endif %}>{{ col | replace('_', ' ') | title }} <span class="sort-arrow"></span></th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for _, row in data.iterrows() %}
+            <tr>
+                {% for col in data.columns %}
+                <td{% if loop.index0 < 2 %} class="col-frozen" data-freeze="{{ loop.index0 }}"{% endif %}>{{ row[col] }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+(function() {
+    const table = document.getElementById('data-table');
+    const headers = table.querySelectorAll('th.sortable');
+    let currentSort = { col: -1, asc: true };
+
+    // Non-sortable columns (text that doesn't have a meaningful sort order)
+    const nonsortable = new Set(['import_date']);
+
+    function parseVal(text) {
+        text = text.trim();
+        if (text === '' || text === 'None' || text === 'nan') return null;
+        // Strip $ , %
+        let cleaned = text.replace(/[$,%]/g, '').replace(/,/g, '');
+        let num = parseFloat(cleaned);
+        return isNaN(num) ? text.toLowerCase() : num;
+    }
+
+    headers.forEach(function(th) {
+        let colName = th.dataset.colname || th.textContent.trim().replace(/[▲▼]/, '').trim();
+        if (nonsortable.has(colName)) return;
+
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', function() {
+            let colIdx = parseInt(th.dataset.col);
+            let asc = (currentSort.col === colIdx) ? !currentSort.asc : true;
+            currentSort = { col: colIdx, asc: asc };
+
+            let tbody = table.querySelector('tbody');
+            let rows = Array.from(tbody.querySelectorAll('tr'));
+
+            rows.sort(function(a, b) {
+                let aVal = parseVal(a.children[colIdx].textContent);
+                let bVal = parseVal(b.children[colIdx].textContent);
+                // Nulls to bottom
+                if (aVal === null && bVal === null) return 0;
+                if (aVal === null) return 1;
+                if (bVal === null) return -1;
+                // Compare
+                if (typeof aVal === 'number' && typeof bVal === 'number') {
+                    return asc ? aVal - bVal : bVal - aVal;
+                }
+                if (aVal < bVal) return asc ? -1 : 1;
+                if (aVal > bVal) return asc ? 1 : -1;
+                return 0;
+            });
+
+            rows.forEach(function(row) { tbody.appendChild(row); });
+
+            // Update arrows
+            headers.forEach(function(h) {
+                h.querySelector('.sort-arrow').textContent = '';
+            });
+            th.querySelector('.sort-arrow').textContent = asc ? ' ▲' : ' ▼';
+        });
+    });
+
+    // ── Sync top + bottom scrollbars ─────────────────────────────────────
+    var tableWrapper = document.getElementById('table-wrapper');
+    var topBar       = document.getElementById('top-scroll-bar');
+    var topInner     = document.getElementById('top-scroll-inner');
+
+    function syncScrollWidth() {
+        topInner.style.width = tableWrapper.scrollWidth + 'px';
+    }
+    syncScrollWidth();
+    window.addEventListener('resize', syncScrollWidth);
+
+    var syncing = false;
+    tableWrapper.addEventListener('scroll', function() {
+        if (syncing) return;
+        syncing = true;
+        topBar.scrollLeft = tableWrapper.scrollLeft;
+        syncing = false;
+    });
+    topBar.addEventListener('scroll', function() {
+        if (syncing) return;
+        syncing = true;
+        tableWrapper.scrollLeft = topBar.scrollLeft;
+        syncing = false;
+    });
+
+    // ── Frozen columns: set left offset for column 1 based on actual col 0 width ──
+    function setFrozenOffsets() {
+        var col0 = table.querySelector('[data-freeze="0"]');
+        var col0Width = col0 ? col0.offsetWidth : 0;
+        table.querySelectorAll('[data-freeze="0"]').forEach(function(el) {
+            el.style.left = '0px';
+        });
+        table.querySelectorAll('[data-freeze="1"]').forEach(function(el) {
+            el.style.left = col0Width + 'px';
+        });
+    }
+    setFrozenOffsets();
+    window.addEventListener('resize', setFrozenOffsets);
+})();
+</script>
+{% else %}
+<p>No data imported yet. Click "Import Data from Excel" to begin.</p>
+{% endif %}
+{% endblock %}
