@@ -42,7 +42,7 @@
             </div>
             <div class="dc-date-chip dc-pay-chip">
                 <span class="dc-chip-label">Pay Date</span>
-                <span class="dc-chip-val {% if ev.pay_date < today %}dc-paid-out{% else %}{% if ev.pay_estimated %}dc-est{% else %}dc-confirmed{% endif %}{% endif %} dc-pay-val">
+                <span class="dc-chip-val {% if ev.pay_date <= today %}dc-paid-out{% else %}{% if ev.pay_estimated %}dc-est{% else %}dc-confirmed{% endif %}{% endif %} dc-pay-val">
                     {{ ev.pay_month }} {{ ev.pay_day }}{% if ev.pay_estimated %} *{% endif %}
                 </span>
             </div>
@@ -296,7 +296,7 @@
 
     cards.forEach(function(c) {
         var pd = c.dataset.payDate;
-        if (!pd || pd >= today) return;
+        if (!pd || pd > today) return;
         var isPaidWeek  = pd >= weekStartIso;
         var isPaidMonth = pd >= monthStartIso;
         if (isPaidWeek || isPaidMonth) {

@@ -382,7 +382,7 @@
                 var rec = data[sym];
                 if (rec && rec.pay_date) {
                     c.dataset.payDate = rec.pay_date;
-                    var isPast = rec.pay_date < todayStr;
+                    var isPast = rec.pay_date <= todayStr;
                     valEl.textContent = fmtDate(rec.pay_date) + (rec.estimated ? " *" : "");
                     valEl.className   = "dc-chip-val " + (isPast ? "dc-paid-out" : "dc-est");
                 } else {
@@ -406,7 +406,7 @@
             var monthStartIso= monthStart.toISOString().slice(0, 10);
             cards.forEach(function(c){
                 var pd = c.dataset.payDate;
-                if (!pd || pd >= todayStr) return;
+                if (!pd || pd > todayStr) return;
                 var isPaidWeek  = pd >= weekStartIso;
                 var isPaidMonth = pd >= monthStartIso;
                 if (isPaidWeek || isPaidMonth) {
