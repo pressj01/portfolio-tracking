@@ -3,9 +3,22 @@
 <h1>Portfolio Dashboard</h1>
 
 <div class="actions">
+    {% if active_profile_id == 1 %}
     <form action="{{ url_for('do_import') }}" method="post">
         <button type="submit" class="btn">Import Data from Excel</button>
     </form>
+    {% else %}
+    <form action="{{ url_for('portfolio_refresh') }}" method="post">
+        <button type="submit" class="btn" style="background:#a855f7;border-color:#a855f7">
+            &#8635; Refresh Data
+        </button>
+    </form>
+    <a href="{{ url_for('portfolio_setup') }}"
+       style="display:inline-block;padding:8px 16px;background:none;border:1px solid #2a2a4e;
+              color:#8899aa;border-radius:6px;font-size:0.85rem;text-decoration:none">
+        &#9998; Edit Holdings
+    </a>
+    {% endif %}
     <span class="info">{{ row_count }} rows in all_account_info</span>
 </div>
 

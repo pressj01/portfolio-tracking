@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, flash, request, jsonify
+from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, session, Response
 import pandas as pd
 import plotly
 import plotly.express as px
@@ -10,7 +10,7 @@ import calendar as _cal
 from config import get_connection
 from import_data import (
     import_from_excel, import_weekly_payouts, import_monthly_payouts,
-    import_monthly_payout_tickers, ensure_tables_exist,
+    import_monthly_payout_tickers, ensure_tables_exist, import_from_upload,
 )
 from normalize import (
     populate_holdings,
@@ -23,8 +23,61 @@ app = Flask(__name__)
 app.secret_key = "portfolio-tracking-secret-key"
 
 
+# ── Multi-profile helpers ─────────────────────────────────────────────────────
+
+def get_profile_id():
+    """Return the active profile_id from the session (default: 1 = Owner)."""
+    return int(session.get('profile_id', 1))
+
+
+@app.context_processor
+def inject_profile():
+    """Inject active_profile_id, active_profile_name, and all_profiles into every template."""
+    pid = get_profile_id()
+    conn = get_connection()
+    try:
+        row = pd.read_sql(
+            "SELECT name FROM dbo.profiles WHERE id = ?", conn, params=[pid]
+        )
+        pname = row.iloc[0]['name'] if not row.empty else 'Owner'
+        all_profiles_df = pd.read_sql(
+            "SELECT id, name FROM dbo.profiles ORDER BY id", conn
+        )
+        profiles_list = all_profiles_df.to_dict('records')
+    except Exception:
+        pname, profiles_list = 'Owner', [{'id': 1, 'name': 'Owner'}]
+    finally:
+        conn.close()
+    return {
+        'active_profile_id':   pid,
+        'active_profile_name': pname,
+        'all_profiles':        profiles_list,
+    }
+
+
 PILLAR_COLS = [
     "hedged_anchor", "anchor", "gold_silver", "booster", "juicer", "bdc", "growth",
+]
+
+SWAP_CANDIDATES = [
+    # Monthly covered-call income
+    "JEPI", "JEPQ", "XYLD", "QYLD", "RYLD", "DIVO", "SVOL",
+    # Daily/weekly options income
+    "XDTE", "QDTE", "RDTE",
+    # Dividend growth
+    "SCHD", "DGRO", "VYM", "DVY", "HDV",
+    # BDCs
+    "ARCC", "MAIN", "HTGC", "OBDC", "BXSL", "GBDC",
+    # CEFs
+    "PDI", "PTY", "GOF", "UTF", "ERC",
+    # High yield / bonds
+    "HYG", "JNK", "BKLN", "ANGL",
+    # Real estate / infrastructure
+    "O", "STAG", "VICI", "AMT",
+    # Preferred / hybrid
+    "PFF", "PFFD",
+    # Broad income
+    "NUSI", "XYLG", "QYLG",
 ]
 
 DOLLAR_COLS = {
@@ -105,6 +158,7 @@ def _build_cal_events(conn):
     FREQ_OFFSET = {"M": 10, "Q": 14, "SA": 21, "A": 21}
 
     try:
+        pid = get_profile_id()
         df = pd.read_sql("""
             SELECT ticker, description, ex_div_date, div, div_frequency
             FROM dbo.all_account_info
@@ -112,8 +166,9 @@ def _build_cal_events(conn):
               AND ex_div_date NOT IN ('', '--')
               AND current_price IS NOT NULL
               AND ISNULL(quantity, 0) > 0
+              AND profile_id = ?
             ORDER BY ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         return []
 
@@ -140,6 +195,33 @@ def _build_cal_events(conn):
         freq   = str(row["div_frequency"]).strip() if pd.notna(row["div_frequency"]) else ""
         amount = float(row["div"]) if pd.notna(row["div"]) and row["div"] else None
         ticker = row["ticker"]
+
+        # ── Project stored ex-div date forward to next upcoming occurrence ─
+        # Non-Owner profiles store the most-recent past ex-div date from
+        # yfinance dividend history. Advance it forward so the calendar stays
+        # current. Owner (pid==1) dates are kept up-to-date by Excel import
+        # and must NOT be projected (that would hide recent "Past 30 Days" events).
+        today_d = datetime.today().date()
+        threshold = today_d - timedelta(days=1)
+        if pid != 1 and dt < threshold and freq:
+            def _add_months(d, n):
+                m = d.month + n
+                y = d.year + (m - 1) // 12
+                m = (m - 1) % 12 + 1
+                day = min(d.day, _cal.monthrange(y, m)[1])
+                return d.replace(year=y, month=m, day=day)
+
+            _period = {
+                "M":  lambda d: _add_months(d, 1),
+                "Q":  lambda d: _add_months(d, 3),
+                "SA": lambda d: _add_months(d, 6),
+                "A":  lambda d: _add_months(d, 12),
+                "W":  lambda d: d + timedelta(weeks=1),
+                "52": lambda d: d + timedelta(weeks=1),
+            }.get(freq)
+            if _period:
+                while dt < threshold:
+                    dt = _period(dt)
 
         # ── Determine pay date ────────────────────────────────────────────
         pay_estimated = True
@@ -196,12 +278,14 @@ def index():
     conn = get_connection()
     ensure_tables_exist(conn)
 
+    pid = get_profile_id()
     try:
         df = pd.read_sql("""
             SELECT * FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND profile_id = ?
             ORDER BY ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         df = pd.DataFrame()
 
@@ -226,12 +310,12 @@ def index():
         total_gain      = pd.to_numeric(df["gain_or_loss"],         errors="coerce").sum()
 
         total_return_dollar = total_gain + total_divs
-        total_return_pct    = round(total_return_dollar / total_purchase * 100, 2) if total_purchase else None
+        total_return_pct    = round(total_return_dollar / total_purchase * 100, 2) if total_purchase else 0
 
         port_stats = {
-            "yield_on_cost":       round(total_annual / total_purchase * 100, 2) if total_purchase else None,
-            "current_yield":       round(total_annual / total_current  * 100, 2) if total_current  else None,
-            "dollars_per_hour":    round(total_annual / 2080, 4)                 if total_annual   else None,
+            "yield_on_cost":       round(total_annual / total_purchase * 100, 2) if total_purchase else 0,
+            "current_yield":       round(total_annual / total_current  * 100, 2) if total_current  else 0,
+            "dollars_per_hour":    round(total_annual / 2080, 4)                 if total_annual   else 0,
             "total_annual":        round(total_annual, 2),
             "total_divs":          round(total_divs, 2),
             "total_gain":          round(total_gain, 2),
@@ -276,6 +360,7 @@ def manage():
 @app.route("/populate/<table>", methods=["POST"])
 def populate(table):
     """Handle populate buttons for normalized tables."""
+    pid = get_profile_id()
     funcs = {
         "holdings": populate_holdings,
         "dividends": populate_dividends,
@@ -288,7 +373,7 @@ def populate(table):
         return redirect(url_for("manage"))
 
     try:
-        row_count, message = func()
+        row_count, message = func(profile_id=pid)
         flash(message, "success")
     except Exception as e:
         flash(f"Failed to populate {table}: {e}", "error")
@@ -480,9 +565,10 @@ def _da_build_charts_and_totals(df, conn):
             for m in future_months: proj_key[m] += annual / 12
 
     try:
+        _da_pid = get_profile_id()
         cur_actual = pd.read_sql(
-            "SELECT amount FROM dbo.monthly_payouts WHERE year=? AND month=?",
-            conn, params=[month_start.year, month_start.month]
+            "SELECT amount FROM dbo.monthly_payouts WHERE year=? AND month=? AND profile_id=?",
+            conn, params=[month_start.year, month_start.month, _da_pid]
         )
         if not cur_actual.empty:
             actual_floor = float(cur_actual.iloc[0]['amount'])
@@ -519,8 +605,9 @@ def _da_build_charts_and_totals(df, conn):
         mp_df = pd.read_sql("""
             SELECT year, month, amount FROM dbo.monthly_payouts
             WHERE (year * 100 + month) >= ? AND (year * 100 + month) <= ?
+              AND profile_id = ?
             ORDER BY year, month
-        """, conn, params=[win_start_key, win_end_key])
+        """, conn, params=[win_start_key, win_end_key, get_profile_id()])
         actuals = {(int(r['year']), int(r['month'])): float(r['amount']) for _, r in mp_df.iterrows()}
         rx_labels  = [m.strftime('%b') for m in da_window]
         rx_vals    = [actuals.get((m.year, m.month), 0.0) for m in da_window]
@@ -553,6 +640,7 @@ def dividend_analysis():
     """Per-ticker dividend summary with filterable charts by asset type."""
     conn = get_connection()
     ensure_tables_exist(conn)
+    pid = get_profile_id()
     try:
         df = pd.read_sql("""
             SELECT
@@ -566,8 +654,9 @@ def dividend_analysis():
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
               AND ISNULL(quantity, 0) > 0
+              AND profile_id = ?
             ORDER BY ISNULL(total_divs_received, 0) DESC, ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         df = pd.DataFrame()
 
@@ -583,6 +672,7 @@ def dividend_analysis_data():
     """AJAX: filtered charts + totals for dividend analysis category filter."""
     types_param = request.args.get('types', '').strip()
     type_list   = [t.strip() for t in types_param.split(',') if t.strip()] if types_param else []
+    pid = get_profile_id()
     conn = get_connection()
     try:
         df = pd.read_sql("""
@@ -597,8 +687,9 @@ def dividend_analysis_data():
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
               AND ISNULL(quantity, 0) > 0
+              AND profile_id = ?
             ORDER BY ISNULL(total_divs_received, 0) DESC, ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         df = pd.DataFrame()
     if type_list and not df.empty:
@@ -618,6 +709,7 @@ def dividend_charts():
     """Charts for YTD Divs, Total Divs Received, and Paid For Itself."""
     conn = get_connection()
     ensure_tables_exist(conn)
+    pid = get_profile_id()
 
     charts = {}
 
@@ -628,8 +720,9 @@ def dividend_charts():
                    purchase_value, estim_payment_per_year
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND profile_id = ?
             ORDER BY ISNULL(total_divs_received, 0) DESC, ticker
-        """, conn)
+        """, conn, params=[pid])
 
         if not df.empty:
             # Coerce all numeric columns — handles '--' and other non-numeric cells
@@ -782,34 +875,39 @@ def payouts():
     """Payouts page with weekly/monthly tables and per-ticker total divs received."""
     conn = get_connection()
     ensure_tables_exist(conn)
+    pid = get_profile_id()
 
     weekly = pd.read_sql("""
         SELECT id, pay_date, week_of_month, amount,
                SUM(amount) OVER (ORDER BY pay_date) AS running_total
         FROM dbo.weekly_payouts
+        WHERE profile_id = ?
         ORDER BY pay_date
-    """, conn)
+    """, conn, params=[pid])
 
     monthly = pd.read_sql("""
         SELECT id, year, month, amount,
                SUM(amount) OVER (ORDER BY year, month) AS running_total
         FROM dbo.monthly_payouts
+        WHERE profile_id = ?
         ORDER BY year, month
-    """, conn)
+    """, conn, params=[pid])
 
     # Per-ticker detail for weekly payers
     weekly_tickers = pd.read_sql("""
         SELECT ticker, shares, distribution, total_dividend
         FROM dbo.weekly_payout_tickers
+        WHERE profile_id = ?
         ORDER BY ticker
-    """, conn)
+    """, conn, params=[pid])
 
     # Per-ticker detail for monthly payers
     monthly_tickers = pd.read_sql("""
         SELECT ticker, pay_month
         FROM dbo.monthly_payout_tickers
+        WHERE profile_id = ?
         ORDER BY ticker, pay_month
-    """, conn)
+    """, conn, params=[pid])
 
     # Per-ticker total divs received from main table — all real holdings
     try:
@@ -817,8 +915,9 @@ def payouts():
             SELECT ticker, description, ytd_divs, total_divs_received, paid_for_itself
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND profile_id = ?
             ORDER BY ISNULL(total_divs_received, 0) DESC, ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         ticker_divs = pd.DataFrame()
 
@@ -864,12 +963,13 @@ def add_weekly():
     pay_date = request.form["pay_date"]
     week = request.form.get("week_of_month") or None
     amount = request.form["amount"]
+    pid = get_profile_id()
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO dbo.weekly_payouts (pay_date, week_of_month, amount) VALUES (?, ?, ?)",
-            pay_date, int(week) if week else None, float(amount),
+            "INSERT INTO dbo.weekly_payouts (pay_date, week_of_month, amount, profile_id) VALUES (?, ?, ?, ?)",
+            pay_date, int(week) if week else None, float(amount), pid,
         )
         conn.commit()
         conn.close()
@@ -884,12 +984,13 @@ def add_monthly():
     year = request.form["year"]
     month = request.form["month"]
     amount = request.form["amount"]
+    pid = get_profile_id()
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO dbo.monthly_payouts (year, month, amount) VALUES (?, ?, ?)",
-            int(year), int(month), float(amount),
+            "INSERT INTO dbo.monthly_payouts (year, month, amount, profile_id) VALUES (?, ?, ?, ?)",
+            int(year), int(month), float(amount), pid,
         )
         conn.commit()
         conn.close()
@@ -973,6 +1074,7 @@ def delete_monthly(row_id):
 def charts():
     """Income and payout trend charts."""
     conn = get_connection()
+    pid = get_profile_id()
     chart_data = {}
 
     try:
@@ -983,9 +1085,10 @@ def charts():
                    SUM(ytd_divs) AS total_ytd_divs,
                    SUM(total_divs_received) AS total_divs_received
             FROM dbo.income_tracking
+            WHERE profile_id = ?
             GROUP BY import_date
             ORDER BY import_date
-        """, conn)
+        """, conn, params=[pid])
 
         if not df.empty:
             dates = df["import_date"].tolist()
@@ -1049,8 +1152,10 @@ def charts():
         wdf = pd.read_sql("""
             SELECT pay_date, amount,
                    SUM(amount) OVER (ORDER BY pay_date) AS running_total
-            FROM dbo.weekly_payouts ORDER BY pay_date
-        """, conn)
+            FROM dbo.weekly_payouts
+            WHERE profile_id = ?
+            ORDER BY pay_date
+        """, conn, params=[pid])
         if not wdf.empty:
             fig_w = go.Figure()
             fig_w.add_trace(go.Bar(x=wdf["pay_date"], y=wdf["amount"], name="Weekly Payout"))
@@ -1066,8 +1171,10 @@ def charts():
         mdf = pd.read_sql("""
             SELECT year, month, amount,
                    SUM(amount) OVER (ORDER BY year, month) AS running_total
-            FROM dbo.monthly_payouts ORDER BY year, month
-        """, conn)
+            FROM dbo.monthly_payouts
+            WHERE profile_id = ?
+            ORDER BY year, month
+        """, conn, params=[pid])
         if not mdf.empty:
             mdf["label"] = mdf.apply(lambda r: f"{int(r['year'])}-{int(r['month']):02d}", axis=1)
             fig_m = go.Figure()
@@ -1091,6 +1198,7 @@ def total_return():
     """Total return dashboard: DB-calculated returns (scatter/table) + AJAX yfinance charts."""
     conn = get_connection()
     ensure_tables_exist(conn)
+    pid = get_profile_id()
 
     try:
         port = pd.read_sql("""
@@ -1102,8 +1210,9 @@ def total_return():
                    estim_payment_per_year, annual_yield_on_cost
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND profile_id = ?
             ORDER BY ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         port = pd.DataFrame()
     conn.close()
@@ -1212,14 +1321,16 @@ def total_return_data():
     }
     period_label = period_labels.get(period, period)
 
+    pid = get_profile_id()
     conn = get_connection()
     try:
         port = pd.read_sql("""
             SELECT ticker, description, classification_type, purchase_value
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND profile_id = ?
             ORDER BY ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         port = pd.DataFrame()
     conn.close()
@@ -1356,6 +1467,7 @@ def single_etf_return():
     """Interactive single-ticker total return vs SPY comparison page."""
     conn = get_connection()
     ensure_tables_exist(conn)
+    pid = get_profile_id()
     try:
         tickers_df = pd.read_sql("""
             SELECT ticker, description, classification_type,
@@ -1364,8 +1476,9 @@ def single_etf_return():
                    total_divs_received, annual_yield_on_cost
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND profile_id = ?
             ORDER BY ticker
-        """, conn)
+        """, conn, params=[pid])
     except Exception:
         tickers_df = pd.DataFrame()
     conn.close()
@@ -1383,9 +1496,10 @@ def single_etf_return():
 
 @app.route("/single_etf_return/data")
 def single_etf_data():
-    """AJAX endpoint — up to 3 independent tickers (t1/t2/t3), any combination.
-    mode: total | price | both
-    t1 = portfolio slot, t2 = custom slot, t3 = compare slot (all optional).
+    """AJAX endpoint — unlimited tickers via t1 + extra=SYM1,SYM2,...
+    mode: total | price | both | income
+    t1 = portfolio slot, extra = comma-separated comparison tickers.
+    Backwards compat: old t2/t3 params still work.
     """
     from flask import jsonify
     import warnings, math
@@ -1393,13 +1507,24 @@ def single_etf_data():
     warnings.filterwarnings("ignore")
 
     t1     = request.args.get("t1",  "").strip().upper()
+    extra  = request.args.get("extra", "").strip()
+    # Backwards compat: old t2/t3 params
     t2     = request.args.get("t2",  "").strip().upper()
     t3     = request.args.get("t3",  "").strip().upper()
+    if not extra:
+        extra = ",".join(s for s in [t2, t3] if s and s != t1)
     period = request.args.get("period", "1y")
-    mode   = request.args.get("mode",   "total")   # total | price | both
+    mode   = request.args.get("mode",   "total")   # total | price | both | all3
+    reinvest_pct = max(0, min(100, int(request.args.get("reinvest", 100))))
+    reinvest_frac = reinvest_pct / 100.0
 
     # Ordered list of (symbol, slot_key) for each enabled non-empty ticker
-    slots = [(sym, lbl) for sym, lbl in [(t1, "t1"), (t2, "t2"), (t3, "t3")] if sym]
+    slots = []
+    if t1:
+        slots.append((t1, "t1"))
+    for i, sym in enumerate(tok.strip().upper() for tok in extra.split(",") if tok.strip()):
+        if sym and sym != t1 and not any(ex == sym for ex, _ in slots):
+            slots.append((sym, f"x{i}"))
     if not slots:
         return jsonify({"error": "No tickers selected."}), 400
 
@@ -1436,11 +1561,26 @@ def single_etf_data():
     period_label = period_labels.get(period, period)
 
     # ── Color / line-style per slot ──────────────────────────────────
-    SLOT_STYLES = {
-        "t1": dict(color="#7ecfff", price_color="#5ba8d0", line_dash="solid", width=3),
-        "t2": dict(color="#a0f0c0", price_color="#70c090", line_dash="solid", width=2.5),
-        "t3": dict(color="#FFD700", price_color="#c0a000", line_dash="dash",  width=2.5),
-    }
+    _EXTRA_COLORS = [
+        ("#a0f0c0", "#70c090"), ("#FFD700", "#c0a000"), ("#ff7eb3", "#d05a8a"),
+        ("#b39ddb", "#8a73b0"), ("#ff8a65", "#c06040"), ("#4dd0e1", "#30a0b0"),
+        ("#aed581", "#80a858"), ("#f48fb1", "#c06080"),
+    ]
+    _DASH_CYCLE = ["solid", "solid", "dash", "dash", "dot", "dot", "dashdot"]
+
+    SLOT_STYLES = {}
+    for _si, (_sym, _sk) in enumerate(slots):
+        if _si == 0:
+            # First ticker always gets the primary blue style
+            SLOT_STYLES[_sk] = dict(color="#7ecfff", price_color="#5ba8d0", line_dash="solid", width=3)
+        else:
+            _ci = (_si - 1) % len(_EXTRA_COLORS)
+            SLOT_STYLES[_sk] = dict(
+                color=_EXTRA_COLORS[_ci][0],
+                price_color=_EXTRA_COLORS[_ci][1],
+                line_dash=_DASH_CYCLE[(_si - 1) % len(_DASH_CYCLE)],
+                width=2.5,
+            )
 
     # ── Helpers ──────────────────────────────────────────────────────
     def dl(symbols, adj):
@@ -1449,10 +1589,41 @@ def single_etf_data():
             sym_str, **yf_kwargs, interval=yf_interval,
             progress=False, auto_adjust=adj,
         )
-        if raw.empty or "Close" not in raw:
+        if raw.empty:
             return pd.DataFrame()
-        c = raw["Close"]
-        return c.to_frame() if isinstance(c, pd.Series) else c
+        try:
+            c = raw["Close"]
+        except KeyError:
+            return pd.DataFrame()
+        if isinstance(c, pd.Series):
+            name = symbols[0] if isinstance(symbols, list) else symbols
+            return c.to_frame(name=name)
+        return c
+
+    def dl_income(symbols):
+        """Download with actions=True to get Close + Dividends (unadjusted)."""
+        sym_str = " ".join(symbols) if isinstance(symbols, list) else symbols
+        raw = __import__("yfinance").download(
+            sym_str, **yf_kwargs, interval=yf_interval,
+            progress=False, auto_adjust=False, actions=True,
+        )
+        if raw.empty:
+            return pd.DataFrame(), pd.DataFrame()
+        try:
+            close = raw["Close"]
+        except KeyError:
+            close = pd.DataFrame()
+        try:
+            divs = raw["Dividends"]
+        except KeyError:
+            divs = pd.DataFrame()
+        # Normalize single-ticker Series to DataFrame
+        name = symbols[0] if isinstance(symbols, list) else symbols
+        if isinstance(close, pd.Series):
+            close = close.to_frame(name=name)
+        if isinstance(divs, pd.Series):
+            divs = divs.to_frame(name=name)
+        return close, divs
 
     def get_col(df, sym):
         if sym in df.columns:
@@ -1488,18 +1659,33 @@ def single_etf_data():
         peak = s.expanding().max()
         return round(float(((s - peak) / peak * 100).min()), 4)
 
+    def blend_price_drip(price_norm, drip_norm, frac):
+        """Blend between price-only (frac=0) and full DRIP (frac=1).
+        Both inputs are normalized series (100 = start).
+        Returns blended normalized series."""
+        if price_norm is None or drip_norm is None:
+            return drip_norm if frac >= 0.5 else price_norm
+        # Align to common index
+        common = price_norm.index.intersection(drip_norm.index)
+        if len(common) < 2:
+            return None
+        p = price_norm.reindex(common)
+        d = drip_norm.reindex(common)
+        return (p * (1 - frac) + d * frac).round(4)
+
     try:
         import yfinance as yf  # noqa
 
         # ── DB snapshot helper (portfolio tickers with no Yahoo data) ────────
+        _snap_pid = get_profile_id()
         def db_snapshot(sym):
             """Return {price_ret, div_pct, total_ret} from all_account_info, or None."""
             c2 = get_connection()
             try:
                 r2 = pd.read_sql("""
                     SELECT purchase_value, gain_or_loss, total_divs_received
-                    FROM dbo.all_account_info WHERE ticker = ?
-                """, c2, params=[sym])
+                    FROM dbo.all_account_info WHERE ticker = ? AND profile_id = ?
+                """, c2, params=[sym, _snap_pid])
             except Exception:
                 r2 = pd.DataFrame()
             finally:
@@ -1520,8 +1706,10 @@ def single_etf_data():
 
         # ── Download price data for all active tickers at once ───────────────
         all_syms    = [sym for sym, _ in slots]
-        close_adj   = dl(all_syms, adj=True)  if mode in ("total", "both") else pd.DataFrame()
-        close_unadj = dl(all_syms, adj=False) if mode in ("price",  "both") else pd.DataFrame()
+        # Return modes need adjusted (DRIP); blending also needs unadjusted (price-only)
+        close_adj   = dl(all_syms, adj=True)  if mode != "price" else pd.DataFrame()
+        need_unadj  = mode in ("price", "both", "all3") or (mode == "total" and reinvest_pct < 100)
+        close_unadj = dl(all_syms, adj=False) if need_unadj else pd.DataFrame()
 
         fig          = go.Figure()
         stats_list   = []   # per-ticker stat dicts
@@ -1549,10 +1737,10 @@ def single_etf_data():
             has_unadj = s_unadj is not None and len(s_unadj) >= 2
 
             # Determine if we need Yahoo data and whether it's missing
-            need_adj   = mode in ("total", "both")
-            need_unadj = mode == "price"
+            _need_adj   = mode in ("total", "both", "all3")
+            _need_unadj = mode in ("price", "both", "all3") or (mode == "total" and reinvest_pct < 100)
 
-            if (need_adj and not has_adj) or (need_unadj and not has_unadj):
+            if ((_need_adj and not has_adj) or (_need_unadj and not has_unadj)):
                 snap = db_snapshot(sym)
                 if snap is None:
                     stats_list.append({
@@ -1566,18 +1754,19 @@ def single_etf_data():
                 any_db  = True
                 x_span  = [ref_dates[0], ref_dates[-1]] if ref_dates else ["Start", "Now"]
 
-                if mode in ("total", "both"):
+                if mode in ("total", "both", "all3"):
                     lvl = 100 + snap["total_ret"]
+                    _lbl = "Total"
                     fig.add_trace(go.Scatter(
                         x=x_span, y=[lvl, lvl],
-                        name=f"{sym} Total (DB)",
+                        name=f"{sym} {_lbl} (DB)",
                         mode="lines+markers",
                         line=dict(color=sty["color"], width=2, dash="dashdot"),
                         marker=dict(symbol="diamond", size=8),
                         hovertemplate=(f"<b>{sym} DB snapshot</b>  Total: "
                                        f"{snap['total_ret']:+.2f}%<extra>all-time</extra>"),
                     ))
-                if mode in ("price", "both"):
+                if mode in ("price", "both", "all3"):
                     lvl = 100 + snap["price_ret"]
                     fig.add_trace(go.Scatter(
                         x=x_span, y=[lvl, lvl],
@@ -1592,8 +1781,8 @@ def single_etf_data():
                 stats_list.append({
                     "label":       sym,
                     "ret":         snap["total_ret"] if mode != "price" else snap["price_ret"],
-                    "price_ret":   snap["price_ret"] if mode == "both" else None,
-                    "div_contrib": snap["div_pct"]   if mode == "both" else None,
+                    "price_ret":   snap["price_ret"] if mode in ("both", "all3") else None,
+                    "div_contrib": snap["div_pct"]   if mode in ("both", "all3") else None,
                     "ann":  None, "mdd": None,
                     "note": "DB snapshot — no Yahoo price history",
                 })
@@ -1601,19 +1790,29 @@ def single_etf_data():
 
             # ── Yahoo data is available — add traces ─────────────────────────
             if mode == "total":
-                n = norm(s_adj)
+                n_adj = norm(s_adj)
+                if reinvest_pct == 100:
+                    n = n_adj
+                else:
+                    s_unadj_t = get_col(close_unadj, sym) if not close_unadj.empty else None
+                    n_unadj_t = norm(s_unadj_t) if s_unadj_t is not None and len(s_unadj_t.dropna()) >= 2 else None
+                    n = blend_price_drip(n_unadj_t, n_adj, reinvest_frac)
                 if n is None:
                     continue
+                ri_label = f" ({reinvest_pct}%)" if reinvest_pct < 100 else ""
                 fig.add_trace(go.Scatter(
                     x=[str(d)[:10] for d in n.index], y=n.tolist(),
-                    name=sym,
+                    name=f"{sym}{ri_label}",
                     line=dict(color=sty["color"], width=sty["width"],
                               dash=sty["line_dash"]),
                     hovertemplate=(f"<b>{sym}</b>: %{{y:.2f}}<br>%{{x}}"
-                                   f"<extra>Total Return</extra>"),
+                                   f"<extra>Return ({reinvest_pct}%)</extra>"),
                 ))
+                ret_val = pct_ret(n)
+                drip_ret = pct_ret(n_adj)
                 stats_list.append({
-                    "label": sym, "ret": pct_ret(n), "price_ret": None,
+                    "label": sym, "ret": ret_val,
+                    "price_ret": None,
                     "div_contrib": None,
                     "ann": ann_ret(n, s_adj), "mdd": max_dd(s_adj), "note": None,
                 })
@@ -1636,7 +1835,60 @@ def single_etf_data():
                     "ann": ann_ret(n, s_unadj), "mdd": max_dd(s_unadj), "note": None,
                 })
 
-            else:  # both
+            elif mode == "all3":
+                # All three: Price Only (dotted) + Custom Blend (dashed) + 100% DRIP (solid)
+                n_adj   = norm(s_adj)   if has_adj   else None
+                n_unadj = norm(s_unadj) if has_unadj else None
+
+                # 1) Price-only trace (bottom — dotted)
+                if n_unadj is not None:
+                    fig.add_trace(go.Scatter(
+                        x=[str(d)[:10] for d in n_unadj.index], y=n_unadj.tolist(),
+                        name=f"{sym} (Price)",
+                        line=dict(color=sty["price_color"],
+                                  width=max(sty["width"] - 1, 1.5), dash="dot"),
+                        hovertemplate=(f"<b>{sym} Price</b>: %{{y:.2f}}<br>%{{x}}"
+                                       f"<extra></extra>"),
+                    ))
+
+                # 2) Custom blend trace (middle — dashed) — skip if 100%
+                n_blend = blend_price_drip(n_unadj, n_adj, reinvest_frac)
+                if reinvest_pct < 100 and n_blend is not None:
+                    fig.add_trace(go.Scatter(
+                        x=[str(d)[:10] for d in n_blend.index], y=n_blend.tolist(),
+                        name=f"{sym} ({reinvest_pct}%)",
+                        line=dict(color=sty["color"], width=sty["width"], dash="dash"),
+                        hovertemplate=(f"<b>{sym} {reinvest_pct}%</b>: %{{y:.2f}}<br>%{{x}}"
+                                       f"<extra></extra>"),
+                    ))
+
+                # 3) 100% DRIP reference trace (top — solid)
+                if n_adj is not None:
+                    fig.add_trace(go.Scatter(
+                        x=[str(d)[:10] for d in n_adj.index], y=n_adj.tolist(),
+                        name=f"{sym} (100% DRIP)",
+                        line=dict(color=sty["color"], width=sty["width"],
+                                  dash="solid"),
+                        hovertemplate=(f"<b>{sym} 100% DRIP</b>: %{{y:.2f}}<br>%{{x}}"
+                                       f"<extra></extra>"),
+                    ))
+
+                tr = pct_ret(n_adj)
+                pr = pct_ret(n_unadj)
+                custom_ret  = pct_ret(n_blend) if n_blend is not None else None
+                drip_div_c  = round(tr - pr, 4) if tr is not None and pr is not None else None
+                stats_list.append({
+                    "label": sym,
+                    "ret":         tr,          # 100% DRIP total
+                    "price_ret":   pr,          # price only
+                    "div_contrib": drip_div_c,  # DRIP div contribution
+                    "custom_ret":  custom_ret,  # custom blend %
+                    "ann": ann_ret(n_adj, s_adj) if n_adj is not None else None,
+                    "mdd": max_dd(s_adj) if s_adj is not None else max_dd(s_unadj),
+                    "note": None,
+                })
+
+            else:  # both — price-only + blended return
                 n_adj   = norm(s_adj)   if has_adj   else None
                 n_unadj = norm(s_unadj) if has_unadj else None
 
@@ -1650,43 +1902,53 @@ def single_etf_data():
                         hovertemplate=(f"<b>{sym} Price</b>: %{{y:.2f}}<br>%{{x}}"
                                        f"<extra></extra>"),
                     ))
-                # Total return on top
-                if n_adj is not None:
+                # Blended return on top
+                n_blend = blend_price_drip(n_unadj, n_adj, reinvest_frac)
+                ri_label = f" ({reinvest_pct}%)" if reinvest_pct < 100 else ""
+                if n_blend is not None:
                     fig.add_trace(go.Scatter(
-                        x=[str(d)[:10] for d in n_adj.index], y=n_adj.tolist(),
-                        name=f"{sym} (Total)",
+                        x=[str(d)[:10] for d in n_blend.index], y=n_blend.tolist(),
+                        name=f"{sym} (Return{ri_label})",
                         line=dict(color=sty["color"], width=sty["width"],
                                   dash=sty["line_dash"]),
-                        hovertemplate=(f"<b>{sym} Total</b>: %{{y:.2f}}<br>%{{x}}"
-                                       f"<extra></extra>"),
+                        hovertemplate=(f"<b>{sym} Return</b>: %{{y:.2f}}<br>%{{x}}"
+                                       f"<extra>{reinvest_pct}%</extra>"),
                     ))
 
-                tr = pct_ret(n_adj)
+                tr = pct_ret(n_blend)
                 pr = pct_ret(n_unadj)
                 stats_list.append({
                     "label": sym, "ret": tr, "price_ret": pr,
                     "div_contrib": (round(tr - pr, 4)
                                     if tr is not None and pr is not None else None),
-                    "ann": ann_ret(n_adj, s_adj), "mdd": max_dd(s_adj), "note": None,
+                    "ann": ann_ret(n_blend, s_adj) if n_blend is not None else None,
+                    "mdd": max_dd(s_adj) if has_adj else max_dd(s_unadj),
+                    "note": None,
                 })
 
-        # ── Pairwise alphas ──────────────────────────────────────────────────
+        # ── Pairwise alphas (only when ≤5 tickers) ────────────────────────────
         alphas = []
+        alpha_note = None
         rets = [(t["label"], t["ret"])
                 for t in stats_list if t.get("ret") is not None]
-        for i in range(len(rets)):
-            for j in range(i + 1, len(rets)):
-                a, b = rets[i], rets[j]
-                alphas.append({
-                    "label": f"{a[0]} vs {b[0]}",
-                    "value": round(a[1] - b[1], 4),
-                })
+        if len(rets) > 5:
+            alpha_note = "Too many tickers for pairwise comparison"
+        else:
+            for i in range(len(rets)):
+                for j in range(i + 1, len(rets)):
+                    a, b = rets[i], rets[j]
+                    alphas.append({
+                        "label": f"{a[0]} vs {b[0]}",
+                        "value": round(a[1] - b[1], 4),
+                    })
 
         # ── Chart layout ─────────────────────────────────────────────────────
         sym_list    = " | ".join(sym for sym, _ in slots)
+        ri_suffix   = f" ({reinvest_pct}% reinvest)" if reinvest_pct < 100 and mode != "price" else ""
         mode_suffix = {"total": "", "price": " — Price Only",
-                       "both": " — Total & Price Return"}
-        title = f"{sym_list} — {period_label}{mode_suffix.get(mode, '')}"
+                       "both": " — Return & Price",
+                       "all3": " — Price vs Custom vs DRIP"}
+        title = f"{sym_list} — {period_label}{mode_suffix.get(mode, '')}{ri_suffix}"
         if any_db:
             title += "  ⚠ some tickers: DB snapshot"
 
@@ -1712,10 +1974,12 @@ def single_etf_data():
             )
 
         stats_out = {
-            "tickers": stats_list,
-            "alphas":  alphas,
-            "period":  period_label,
-            "mode":    mode,
+            "tickers":      stats_list,
+            "alphas":       alphas,
+            "alpha_note":   alpha_note,
+            "period":       period_label,
+            "mode":         mode,
+            "reinvest_pct": reinvest_pct,
         }
 
         # ── DB position panel — only for t1 (portfolio slot) ─────────────────
@@ -1727,8 +1991,8 @@ def single_etf_data():
                     SELECT price_paid, current_price, quantity, purchase_value,
                            current_value, gain_or_loss, total_divs_received,
                            annual_yield_on_cost, estim_payment_per_year, description
-                    FROM dbo.all_account_info WHERE ticker = ?
-                """, conn, params=[t1])
+                    FROM dbo.all_account_info WHERE ticker = ? AND profile_id = ?
+                """, conn, params=[t1, _snap_pid])
             except Exception:
                 row = pd.DataFrame()
             conn.close()
@@ -2040,6 +2304,360 @@ def _sortino(close, risk_free_annual=0.05):
         return None
 
 
+def _letter_grade(score):
+    """Convert numeric score (0-100) to letter grade."""
+    if score >= 97:
+        return "A+"
+    if score >= 93:
+        return "A"
+    if score >= 90:
+        return "A-"
+    if score >= 87:
+        return "B+"
+    if score >= 83:
+        return "B"
+    if score >= 80:
+        return "B-"
+    if score >= 77:
+        return "C+"
+    if score >= 73:
+        return "C"
+    if score >= 70:
+        return "C-"
+    if score >= 67:
+        return "D+"
+    if score >= 63:
+        return "D"
+    if score >= 60:
+        return "D-"
+    return "F"
+
+
+def _grade_portfolio(returns_df, weights_arr, bench_ret=None):
+    """Compute composite portfolio grade dict given returns + weights.
+
+    Args:
+        returns_df: DataFrame of daily returns (columns = tickers)
+        weights_arr: numpy array of weights (will be normalized)
+        bench_ret: optional Series of benchmark daily returns
+
+    Returns:
+        dict with sharpe, sortino, calmar, omega, max_drawdown,
+        effective_n, top_weight, up/down_capture, and grade sub-dict.
+    """
+    import numpy as np
+    import math
+
+    def _safe(v):
+        if v is None:
+            return None
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
+
+    def _sm(val, thr):
+        """Score a metric where higher is better."""
+        if val is None:
+            return None
+        exc, good, fair, poor = thr
+        if val >= exc:
+            return 100.0
+        if val >= good:
+            return 80 + 20 * (val - good) / (exc - good)
+        if val >= fair:
+            return 60 + 20 * (val - fair) / (good - fair)
+        if val >= poor:
+            return 40 + 20 * (val - poor) / (fair - poor)
+        return max(0.0, 40 * val / poor) if poor != 0 else 0.0
+
+    def _sl(val, thr):
+        """Score a metric where lower is better."""
+        if val is None:
+            return None
+        exc, good, fair, poor = thr
+        if val <= exc:
+            return 100.0
+        if val <= good:
+            return 80 + 20 * (good - val) / (good - exc)
+        if val <= fair:
+            return 60 + 20 * (fair - val) / (fair - good)
+        if val <= poor:
+            return 40 + 20 * (poor - val) / (poor - fair)
+        return max(0.0, 20.0)
+
+    w = np.array(weights_arr, dtype=float)
+    w_sum = w.sum()
+    if w_sum > 0:
+        w = w / w_sum
+
+    port_daily = returns_df.dot(w)
+    port_cum = (1 + port_daily).cumprod()
+
+    port_mdd = _safe(_max_drawdown(port_cum))
+    metrics = {
+        "sharpe": _safe(_sharpe(port_cum)),
+        "sortino": _safe(_sortino(port_cum)),
+        "calmar": _safe(_calmar(port_cum)),
+        "omega": _safe(_omega(port_daily)),
+        "max_drawdown": port_mdd,
+    }
+
+    if bench_ret is not None:
+        aligned = pd.concat([port_daily, bench_ret], axis=1).dropna()
+        if len(aligned) > 30:
+            aligned.columns = ["port", "bench"]
+            uc, dc = _capture_ratios(aligned["port"], aligned["bench"])
+            metrics["up_capture"] = _safe(uc)
+            metrics["down_capture"] = _safe(dc)
+
+    wt_sorted = sorted(w, reverse=True)
+    metrics["top_weight"] = round(float(wt_sorted[0]) * 100, 2) if len(wt_sorted) else 0
+    hhi = float(sum(wi ** 2 for wi in w))
+    metrics["effective_n"] = round(1.0 / hhi, 1) if hhi > 0 else 0
+
+    mdd_pct = port_mdd * 100 if port_mdd is not None else None
+    sub = {
+        "sharpe":        _sm(metrics.get("sharpe"),        (1.5, 1.0, 0.5, 0.0)),
+        "sortino":       _sm(metrics.get("sortino"),       (2.0, 1.5, 1.0, 0.5)),
+        "calmar":        _sm(metrics.get("calmar"),        (1.5, 1.0, 0.5, 0.2)),
+        "omega":         _sm(metrics.get("omega"),         (2.0, 1.5, 1.2, 1.0)),
+        "max_drawdown":  _sl(abs(mdd_pct) if mdd_pct is not None else None, (10, 20, 30, 40)),
+        "down_capture":  _sl(metrics.get("down_capture"),  (80, 90, 100, 120)),
+        "diversification": _sm(metrics.get("effective_n"), (20, 12, 6, 3)),
+    }
+
+    gw = {"sharpe": 25, "sortino": 15, "calmar": 10, "omega": 10,
+          "max_drawdown": 20, "down_capture": 10, "diversification": 10}
+    label_map = {
+        "sharpe": "Sharpe Ratio", "sortino": "Sortino Ratio",
+        "calmar": "Calmar Ratio", "omega": "Omega Ratio",
+        "max_drawdown": "Max Drawdown", "down_capture": "Downside Capture",
+        "diversification": "Diversification",
+    }
+
+    total_w = total_s = 0.0
+    breakdown = []
+    for key, wt in gw.items():
+        sc = sub.get(key)
+        if sc is not None:
+            total_w += wt
+            total_s += sc * wt
+            breakdown.append({
+                "category": label_map[key],
+                "score": round(sc, 1),
+                "weight": wt,
+                "grade": _letter_grade(sc),
+            })
+
+    overall = round(total_s / total_w, 1) if total_w > 0 else 0.0
+    metrics["grade"] = {
+        "overall": _letter_grade(overall),
+        "score": overall,
+        "breakdown": breakdown,
+    }
+    return metrics
+
+
+def _calmar(close, risk_free_annual=0.0):
+    """Calmar ratio: annualized return / abs(max drawdown). Returns float or None."""
+    import numpy as np
+    try:
+        if len(close) < 30:
+            return None
+        ann_ret = (close.iloc[-1] / close.iloc[0]) ** (252 / len(close)) - 1
+        running_max = close.cummax()
+        drawdowns = (close - running_max) / running_max
+        mdd = float(drawdowns.min())
+        if mdd == 0 or np.isnan(mdd):
+            return None
+        return round(float(ann_ret) / abs(mdd), 2)
+    except Exception:
+        return None
+
+
+def _omega(daily_returns, threshold=0.0):
+    """Omega ratio: sum of gains above threshold / sum of losses below. Returns float or None."""
+    import numpy as np
+    try:
+        if len(daily_returns) < 30:
+            return None
+        excess = daily_returns - threshold / 252
+        gains = float(excess[excess > 0].sum())
+        losses = abs(float(excess[excess <= 0].sum()))
+        if losses == 0 or np.isnan(losses):
+            return None
+        return round(gains / losses, 2)
+    except Exception:
+        return None
+
+
+def _capture_ratios(ticker_returns, bench_returns):
+    """Upside/downside capture ratios. Returns (up_capture, down_capture) or (None, None)."""
+    import numpy as np
+    try:
+        if len(ticker_returns) < 30:
+            return None, None
+        up_days = bench_returns > 0
+        down_days = bench_returns < 0
+        if up_days.sum() == 0 or down_days.sum() == 0:
+            return None, None
+        bench_up_mean = float(bench_returns[up_days].mean())
+        bench_down_mean = float(bench_returns[down_days].mean())
+        if bench_up_mean == 0 or bench_down_mean == 0:
+            return None, None
+        up_cap = round(float(ticker_returns[up_days].mean()) / bench_up_mean * 100, 1)
+        down_cap = round(float(ticker_returns[down_days].mean()) / bench_down_mean * 100, 1)
+        return up_cap, down_cap
+    except Exception:
+        return None, None
+
+
+def _max_drawdown(close):
+    """Maximum drawdown as a fraction (negative). Returns float or None."""
+    try:
+        running_max = close.cummax()
+        drawdowns = (close - running_max) / running_max
+        return float(drawdowns.min())
+    except Exception:
+        return None
+
+
+def _portfolio_sharpe(weights, returns_df, risk_free_annual=0.05):
+    """Portfolio Sharpe from weight vector and returns DataFrame."""
+    import numpy as np
+    port_ret = returns_df.dot(weights)
+    daily_rf = risk_free_annual / 252
+    excess = float(port_ret.mean()) - daily_rf
+    std = float(port_ret.std())
+    if std == 0:
+        return 0.0
+    return excess / std * np.sqrt(252)
+
+
+def _portfolio_max_dd(weights, returns_df):
+    """Portfolio max drawdown from weight vector and returns DataFrame."""
+    port_ret = returns_df.dot(weights)
+    cum = (1 + port_ret).cumprod()
+    running_max = cum.cummax()
+    dd = (cum - running_max) / running_max
+    return float(dd.min())
+
+
+def _optimize_sharpe(returns_df):
+    """Find weight vector maximizing portfolio Sharpe ratio using scipy SLSQP."""
+    import numpy as np
+    from scipy.optimize import minimize
+
+    n = returns_df.shape[1]
+    init = np.ones(n) / n
+
+    def neg_sharpe(w):
+        return -_portfolio_sharpe(w, returns_df)
+
+    bounds = [(0, 1)] * n
+    constraints = [{"type": "eq", "fun": lambda w: w.sum() - 1}]
+    result = minimize(neg_sharpe, init, method="SLSQP", bounds=bounds,
+                      constraints=constraints, options={"maxiter": 1000})
+    return result.x if result.success else init
+
+
+def _optimize_income(returns_df, yields, min_sharpe=0.5, max_dd=-0.30):
+    """Maximize weighted dividend yield subject to Sharpe and drawdown constraints."""
+    import numpy as np
+    from scipy.optimize import minimize
+
+    n = returns_df.shape[1]
+    init = np.ones(n) / n
+    yields_arr = np.array(yields)
+
+    def neg_yield(w):
+        return -float(w.dot(yields_arr))
+
+    constraints = [
+        {"type": "eq", "fun": lambda w: w.sum() - 1},
+        {"type": "ineq", "fun": lambda w: _portfolio_sharpe(w, returns_df) - min_sharpe},
+        {"type": "ineq", "fun": lambda w: _portfolio_max_dd(w, returns_df) - max_dd},
+    ]
+    bounds = [(0, 1)] * n
+    result = minimize(neg_yield, init, method="SLSQP", bounds=bounds,
+                      constraints=constraints, options={"maxiter": 1000})
+    return result.x if result.success else init
+
+
+def _optimize_balanced(returns_df, yields, balance=0.5):
+    """Maximize a blend of portfolio yield (income) and Sharpe (safety).
+    balance=1.0: pure income; balance=0.0: pure Sharpe.
+    """
+    import numpy as np
+    from scipy.optimize import minimize
+
+    n = returns_df.shape[1]
+    mu = returns_df.mean().values * 252
+    cov = returns_df.cov().values * 252
+    yields_arr = np.array(yields)
+    max_yield = float(yields_arr.max()) if yields_arr.max() > 0 else 0.10
+
+    def neg_objective(w):
+        port_yield = float(yields_arr @ w)
+        port_ret = float(mu @ w)
+        port_vol = float(np.sqrt(w @ cov @ w))
+        port_sharpe = (port_ret - 0.05) / port_vol if port_vol > 1e-6 else 0
+        norm_yield = port_yield / max_yield if max_yield > 0 else 0
+        norm_sharpe = min(max(port_sharpe, 0), 3) / 3.0
+        return -(balance * norm_yield + (1.0 - balance) * norm_sharpe)
+
+    constraints = [{"type": "eq", "fun": lambda w: w.sum() - 1}]
+    bounds = [(0.01, 0.40)] * n
+    best = None
+    rng = np.random.default_rng(42)
+    for _ in range(20):
+        w0 = rng.dirichlet(np.ones(n))
+        try:
+            res = minimize(neg_objective, w0, method="SLSQP", bounds=bounds,
+                           constraints=constraints, options={"maxiter": 1000, "ftol": 1e-9})
+            if res.success and (best is None or res.fun < best.fun):
+                best = res
+        except Exception:
+            pass
+    if best is None:
+        return np.ones(n) / n
+    w = np.maximum(best.x, 0)
+    w[w < 0.01] = 0
+    return w / w.sum() if w.sum() > 0 else np.ones(n) / n
+
+
+def _build_efficient_frontier(returns_df, n_points=30):
+    """Generate (volatility, return) points for the efficient frontier."""
+    import numpy as np
+    from scipy.optimize import minimize
+
+    n = returns_df.shape[1]
+    mean_ret = returns_df.mean().values * 252
+    cov = returns_df.cov().values * 252
+
+    ret_range = np.linspace(mean_ret.min(), mean_ret.max(), n_points)
+    frontier = []
+
+    for target in ret_range:
+        def portfolio_vol(w):
+            return np.sqrt(w @ cov @ w)
+
+        constraints = [
+            {"type": "eq", "fun": lambda w: w.sum() - 1},
+            {"type": "eq", "fun": lambda w: w @ mean_ret - target},
+        ]
+        bounds = [(0, 1)] * n
+        init = np.ones(n) / n
+        result = minimize(portfolio_vol, init, method="SLSQP", bounds=bounds,
+                          constraints=constraints, options={"maxiter": 500})
+        if result.success:
+            vol = float(np.sqrt(result.x @ cov @ result.x))
+            ret = float(result.x @ mean_ret)
+            frontier.append({"vol": round(vol * 100, 2), "ret": round(ret * 100, 2)})
+
+    return frontier
+
+
 SIGNAL_COLOR = {"BUY": "#00c853", "SELL": "#d50000", "NEUTRAL": "#f9a825"}
 SIGNAL_ORDER = {"BUY": 0, "NEUTRAL": 1, "SELL": 2}
 
@@ -2121,13 +2739,15 @@ def buy_sell_signals_data():
     # ── DB query ──────────────────────────────────────────────────────────────
 
     conn = get_connection()
+    _bss_pid = get_profile_id()
     try:
         port = pd.read_sql("""
             SELECT ticker, description, classification_type, purchase_value
             FROM dbo.all_account_info
             WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND profile_id = ?
             ORDER BY ticker
-        """, conn)
+        """, conn, params=[_bss_pid])
     except Exception:
         port = pd.DataFrame(columns=["ticker", "description", "classification_type", "purchase_value"])
     conn.close()
@@ -2679,15 +3299,16 @@ def portfolio_income_sim():
 def portfolio_income_sim_portfolio_tickers():
     """Return all live portfolio tickers for the picker modal."""
     from flask import jsonify
+    pid = get_profile_id()
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT ticker, description, classification_type,
                purchase_value, reinvest, current_annual_yield
         FROM dbo.all_account_info
-        WHERE current_price IS NOT NULL
+        WHERE current_price IS NOT NULL AND profile_id = ?
         ORDER BY ticker
-    """)
+    """, pid)
     tickers = [
         {
             "ticker":        r[0],
@@ -3010,15 +3631,27 @@ def _portfolio_income_sim_run_inner():
 
         def get_ticker_df(sym):
             try:
-                if len(unique_tickers) == 1:
-                    close = raw["Close"]
-                    divs  = raw["Dividends"] if "Dividends" in raw.columns else pd.Series(0.0, index=raw.index)
-                else:
-                    if sym not in raw.columns.get_level_values(0):
+                if isinstance(raw.columns, pd.MultiIndex):
+                    top_keys = raw.columns.get_level_values(0).unique()
+                    if sym in top_keys:
+                        sub = raw[sym]
+                        close = sub["Close"] if "Close" in sub.columns else None
+                        divs  = sub["Dividends"] if "Dividends" in sub.columns else pd.Series(0.0, index=raw.index)
+                    elif "Close" in top_keys:
+                        close = raw["Close"][sym] if sym in raw["Close"].columns else raw["Close"].iloc[:, 0]
+                        divs_df = raw["Dividends"] if "Dividends" in top_keys else None
+                        if divs_df is not None:
+                            divs = divs_df[sym] if sym in divs_df.columns else pd.Series(0.0, index=raw.index)
+                        else:
+                            divs = pd.Series(0.0, index=raw.index)
+                    else:
                         return None, None
-                    close = raw[sym]["Close"]
-                    divs  = raw[sym]["Dividends"] if "Dividends" in raw[sym].columns else pd.Series(0.0, index=raw[sym].index)
+                else:
+                    close = raw["Close"] if "Close" in raw.columns else None
+                    divs  = raw["Dividends"] if "Dividends" in raw.columns else pd.Series(0.0, index=raw.index)
             except Exception:
+                return None, None
+            if close is None:
                 return None, None
             return close, divs
 
@@ -3345,15 +3978,31 @@ def nav_erosion_portfolio_data():
     def get_ticker_df(sym):
         """Extract Close + Dividends for one ticker from the batch download."""
         try:
-            if len(unique_tickers) == 1:
-                close = raw["Close"]
-                divs  = raw["Dividends"] if "Dividends" in raw.columns else pd.Series(0.0, index=raw.index)
-            else:
-                if sym not in raw.columns.get_level_values(0):
+            if isinstance(raw.columns, pd.MultiIndex):
+                # MultiIndex — try ticker-first (group_by="ticker") then column-first
+                top_keys = raw.columns.get_level_values(0).unique()
+                if sym in top_keys:
+                    # group_by="ticker": top level is ticker name
+                    sub = raw[sym]
+                    close = sub["Close"] if "Close" in sub.columns else None
+                    divs  = sub["Dividends"] if "Dividends" in sub.columns else pd.Series(0.0, index=raw.index)
+                elif "Close" in top_keys:
+                    # group_by="column" (default): top level is column name
+                    close = raw["Close"][sym] if sym in raw["Close"].columns else raw["Close"].iloc[:, 0]
+                    divs_df = raw["Dividends"] if "Dividends" in top_keys else None
+                    if divs_df is not None:
+                        divs = divs_df[sym] if sym in divs_df.columns else pd.Series(0.0, index=raw.index)
+                    else:
+                        divs = pd.Series(0.0, index=raw.index)
+                else:
                     return None, None
-                close = raw[sym]["Close"]
-                divs  = raw[sym]["Dividends"] if "Dividends" in raw[sym].columns else pd.Series(0.0, index=raw[sym].index)
+            else:
+                # Flat columns (single ticker, no MultiIndex)
+                close = raw["Close"] if "Close" in raw.columns else None
+                divs  = raw["Dividends"] if "Dividends" in raw.columns else pd.Series(0.0, index=raw.index)
         except Exception:
+            return None, None
+        if close is None:
             return None, None
         return close, divs
 
@@ -3798,6 +4447,1090 @@ def watchlist_data():
 
     return jsonify(watching=watching_rows, sold=sold_rows, counts=counts,
                    ticker_info=ticker_info_clean, error=error)
+
+
+# ── Portfolio Analytics & Optimization ────────────────────────────────────────
+
+@app.route("/portfolio_analytics")
+def portfolio_analytics():
+    """Portfolio analytics shell page — metrics + optimization via AJAX."""
+    pid = get_profile_id()
+    conn = get_connection()
+    try:
+        df = pd.read_sql("""
+            SELECT ticker, current_value, estim_payment_per_year
+            FROM dbo.all_account_info
+            WHERE current_value IS NOT NULL AND current_value > 0
+              AND profile_id = ?
+            ORDER BY ticker
+        """, conn, params=[pid])
+    except Exception:
+        df = pd.DataFrame()
+    conn.close()
+    tickers = df["ticker"].tolist() if not df.empty else []
+    return render_template("portfolio_analytics.html", tickers=tickers)
+
+
+@app.route("/portfolio_analytics/data")
+def portfolio_analytics_data():
+    """AJAX: compute risk metrics and/or optimization for given tickers."""
+    import warnings, math
+    import numpy as np
+    warnings.filterwarnings("ignore")
+
+    tickers_param = request.args.get("tickers", "")
+    benchmark = request.args.get("benchmark", "SPY")
+    period = request.args.get("period", "1y")
+    mode = request.args.get("mode", "metrics")
+    min_sharpe = float(request.args.get("min_sharpe", "0.5"))
+    max_dd = float(request.args.get("max_dd", "-0.30"))
+
+    if not tickers_param:
+        return jsonify({"error": "No tickers provided."}), 400
+
+    tickers = [t.strip().upper() for t in tickers_param.split(",") if t.strip()]
+    if not tickers:
+        return jsonify({"error": "No valid tickers."}), 400
+
+    # Period mapping (same pattern as total_return_data)
+    from datetime import date as date_type
+    period_map = {
+        "1mo": dict(period="1mo"), "3mo": dict(period="3mo"),
+        "6mo": dict(period="6mo"), "ytd": dict(period="ytd"),
+        "1y": dict(period="1y"), "2y": dict(period="2y"),
+        "5y": dict(period="5y"), "max": dict(period="max"),
+    }
+    if period.isdigit() and len(period) == 4:
+        yr = int(period)
+        today = date_type.today()
+        start = f"{yr}-01-01"
+        end = today.strftime("%Y-%m-%d") if yr == today.year else f"{yr}-12-31"
+        yf_kwargs = dict(start=start, end=end)
+    else:
+        yf_kwargs = period_map.get(period, dict(period="1y"))
+
+    # Fetch price data
+    import yfinance as yf
+    all_tickers = list(set(tickers + [benchmark]))
+    try:
+        raw = yf.download(" ".join(all_tickers), **yf_kwargs, progress=False, auto_adjust=True)
+        if raw.empty:
+            return jsonify({"error": "No price data returned."}), 500
+    except Exception as e:
+        return jsonify({"error": f"yfinance error: {str(e)}"}), 500
+
+    # Extract close prices
+    if isinstance(raw.columns, pd.MultiIndex):
+        close = raw["Close"].dropna(how="all")
+    else:
+        close = raw[["Close"]].dropna(how="all")
+        close.columns = all_tickers[:1]
+
+    # Get DB weights and yields
+    _pa_pid = get_profile_id()
+    conn = get_connection()
+    try:
+        db_df = pd.read_sql("""
+            SELECT ticker, current_value, estim_payment_per_year
+            FROM dbo.all_account_info
+            WHERE current_value IS NOT NULL AND current_value > 0
+              AND profile_id = ?
+        """, conn, params=[_pa_pid])
+    except Exception:
+        db_df = pd.DataFrame(columns=["ticker", "current_value", "estim_payment_per_year"])
+    conn.close()
+
+    total_val = db_df["current_value"].sum() if not db_df.empty else 1
+    weight_map = {}
+    yield_map = {}
+    for _, r in db_df.iterrows():
+        t = r["ticker"]
+        weight_map[t] = float(r["current_value"]) / total_val if total_val > 0 else 0
+        cv = float(r["current_value"]) if r["current_value"] and r["current_value"] > 0 else 1
+        ep = float(r["estim_payment_per_year"]) if pd.notna(r["estim_payment_per_year"]) else 0
+        yield_map[t] = ep / cv
+
+    bench_close = close[benchmark] if benchmark in close.columns else None
+    bench_ret = bench_close.pct_change().dropna() if bench_close is not None else None
+
+    def safe(v):
+        if v is None:
+            return None
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
+
+    # Compute per-ticker metrics
+    metrics = []
+    available_tickers = []
+    for t in tickers:
+        if t not in close.columns:
+            continue
+        tc = close[t].dropna()
+        if len(tc) < 30:
+            continue
+        available_tickers.append(t)
+        tr = tc.pct_change().dropna()
+        up_cap, down_cap = _capture_ratios(tr, bench_ret) if bench_ret is not None else (None, None)
+        annual_ret = round(float(tr.mean() * 252) * 100, 2)
+        annual_vol = round(float(tr.std() * np.sqrt(252)) * 100, 2)
+        metrics.append({
+            "ticker": t,
+            "sharpe": safe(_sharpe(tc)),
+            "sortino": safe(_sortino(tc)),
+            "calmar": safe(_calmar(tc)),
+            "omega": safe(_omega(tr)),
+            "up_capture": safe(up_cap),
+            "down_capture": safe(down_cap),
+            "weight": round(weight_map.get(t, 0) * 100, 2),
+            "annual_ret": annual_ret,
+            "annual_vol": annual_vol,
+            "annual_income": round(float(db_df.loc[db_df["ticker"] == t, "estim_payment_per_year"].values[0])
+                                   if t in db_df["ticker"].values and
+                                      pd.notna(db_df.loc[db_df["ticker"] == t, "estim_payment_per_year"].values[0])
+                                   else 0, 2),
+        })
+
+    # Portfolio weighted metrics
+    port_metrics = {}
+    result_corr = None
+    result_dd = None
+    if len(available_tickers) >= 2:
+        returns_df = close[available_tickers].pct_change().dropna()
+        weights_arr = np.array([weight_map.get(t, 1 / len(available_tickers)) for t in available_tickers])
+        w_sum = weights_arr.sum()
+        if w_sum > 0:
+            weights_arr = weights_arr / w_sum
+
+        port_daily = returns_df.dot(weights_arr)
+        port_cum = (1 + port_daily).cumprod()
+
+        port_mdd = safe(_max_drawdown(port_cum))
+        port_metrics = {
+            "sharpe": safe(_sharpe(port_cum)),
+            "sortino": safe(_sortino(port_cum)),
+            "calmar": safe(_calmar(port_cum)),
+            "omega": safe(_omega(port_daily)),
+            "max_drawdown": port_mdd,
+        }
+        if bench_ret is not None:
+            aligned = pd.concat([port_daily, bench_ret], axis=1).dropna()
+            if len(aligned) > 30:
+                aligned.columns = ["port", "bench"]
+                up_cap, down_cap = _capture_ratios(aligned["port"], aligned["bench"])
+                port_metrics["up_capture"] = safe(up_cap)
+                port_metrics["down_capture"] = safe(down_cap)
+
+        # Diversification: top-holding concentration and effective N
+        wt_arr_sorted = sorted(weights_arr, reverse=True)
+        port_metrics["top_weight"] = round(wt_arr_sorted[0] * 100, 2) if len(wt_arr_sorted) else 0
+        hhi = float(sum(w ** 2 for w in weights_arr))
+        port_metrics["effective_n"] = round(1 / hhi, 1) if hhi > 0 else 0
+        port_metrics["n_holdings"] = len(available_tickers)
+
+        # ── Portfolio Grade ──
+        def _score_metric(val, thresholds):
+            """Score 0–100 given (excellent, good, fair, poor) thresholds (descending)."""
+            if val is None:
+                return None
+            exc, good, fair, poor = thresholds
+            if val >= exc:
+                return 100
+            if val >= good:
+                return 80 + 20 * (val - good) / (exc - good)
+            if val >= fair:
+                return 60 + 20 * (val - fair) / (good - fair)
+            if val >= poor:
+                return 40 + 20 * (val - poor) / (fair - poor)
+            return max(0, 40 * val / poor) if poor != 0 else 0
+
+        def _score_lower_better(val, thresholds):
+            """Score 0–100 where lower values are better. Thresholds ascending."""
+            if val is None:
+                return None
+            exc, good, fair, poor = thresholds
+            if val <= exc:
+                return 100
+            if val <= good:
+                return 80 + 20 * (good - val) / (good - exc)
+            if val <= fair:
+                return 60 + 20 * (fair - val) / (fair - good)
+            if val <= poor:
+                return 40 + 20 * (poor - val) / (poor - fair)
+            return max(0, 20)
+
+        sub_scores = {}
+        # Sharpe: >1.5 excellent, >1.0 good, >0.5 fair, >0.0 poor
+        sub_scores["sharpe"] = _score_metric(port_metrics.get("sharpe"), (1.5, 1.0, 0.5, 0.0))
+        # Sortino: >2.0 excellent, >1.5 good, >1.0 fair, >0.5 poor
+        sub_scores["sortino"] = _score_metric(port_metrics.get("sortino"), (2.0, 1.5, 1.0, 0.5))
+        # Calmar: >1.5 excellent, >1.0 good, >0.5 fair, >0.2 poor
+        sub_scores["calmar"] = _score_metric(port_metrics.get("calmar"), (1.5, 1.0, 0.5, 0.2))
+        # Omega: >2.0 excellent, >1.5 good, >1.2 fair, >1.0 poor
+        sub_scores["omega"] = _score_metric(port_metrics.get("omega"), (2.0, 1.5, 1.2, 1.0))
+        # Max drawdown (as %): >-10 excellent, >-20 good, >-30 fair, >-40 poor
+        mdd_pct = port_mdd * 100 if port_mdd is not None else None
+        sub_scores["max_drawdown"] = _score_lower_better(
+            abs(mdd_pct) if mdd_pct is not None else None, (10, 20, 30, 40))
+        # Downside capture: <80 excellent, <90 good, <100 fair, <120 poor
+        sub_scores["down_capture"] = _score_lower_better(
+            port_metrics.get("down_capture"), (80, 90, 100, 120))
+        # Diversification via effective N: >20 excellent, >12 good, >6 fair, >3 poor
+        sub_scores["diversification"] = _score_metric(
+            port_metrics.get("effective_n"), (20, 12, 6, 3))
+
+        # Weighted average (skip None scores)
+        weights_grade = {
+            "sharpe": 25, "sortino": 15, "calmar": 10, "omega": 10,
+            "max_drawdown": 20, "down_capture": 10, "diversification": 10,
+        }
+        total_w = 0
+        total_score = 0
+        grade_breakdown = []
+        for key, w in weights_grade.items():
+            sc = sub_scores.get(key)
+            label_map = {
+                "sharpe": "Sharpe Ratio", "sortino": "Sortino Ratio",
+                "calmar": "Calmar Ratio", "omega": "Omega Ratio",
+                "max_drawdown": "Max Drawdown", "down_capture": "Downside Capture",
+                "diversification": "Diversification",
+            }
+            if sc is not None:
+                total_w += w
+                total_score += sc * w
+                grade_breakdown.append({
+                    "category": label_map.get(key, key),
+                    "score": round(sc, 1),
+                    "weight": w,
+                    "grade": _letter_grade(sc),
+                })
+
+        overall_score = round(total_score / total_w, 1) if total_w > 0 else 0
+        overall_grade = _letter_grade(overall_score)
+
+        port_metrics["grade"] = {
+            "overall": overall_grade,
+            "score": overall_score,
+            "breakdown": grade_breakdown,
+        }
+
+        # Correlation matrix
+        corr = returns_df.corr()
+        result_corr = {
+            "labels": available_tickers,
+            "matrix": [[round(float(corr.loc[a, b]), 3) for b in available_tickers]
+                       for a in available_tickers],
+        }
+
+        # Portfolio drawdown series (capped at ~200 points)
+        roll_max = port_cum.cummax()
+        drawdown_s = (port_cum / roll_max - 1)
+        step = max(1, len(drawdown_s) // 200)
+        dd_sampled = drawdown_s.iloc[::step]
+        result_dd = {
+            "dates": [d.strftime("%Y-%m-%d") for d in dd_sampled.index],
+            "values": [round(float(v) * 100, 2) for v in dd_sampled.values],
+        }
+
+    result = {"metrics": metrics, "portfolio_metrics": port_metrics}
+    if result_corr:
+        result["correlation"] = result_corr
+        result["drawdown_series"] = result_dd
+
+    # Optimization
+    if mode in ("optimize_returns", "optimize_income", "optimize_balanced") and len(available_tickers) >= 2:
+        returns_df = close[available_tickers].pct_change().dropna()
+
+        current_weights = np.array([weight_map.get(t, 0) for t in available_tickers])
+        cw_sum = current_weights.sum()
+        if cw_sum > 0:
+            current_weights = current_weights / cw_sum
+
+        if mode == "optimize_returns":
+            opt_w = _optimize_sharpe(returns_df)
+            frontier = _build_efficient_frontier(returns_df)
+
+            # Optimal portfolio stats
+            opt_sharpe = _portfolio_sharpe(opt_w, returns_df)
+            mean_ret = float(returns_df.mean().values @ opt_w) * 252
+            cov = returns_df.cov().values * 252
+            opt_vol = float(np.sqrt(opt_w @ cov @ opt_w))
+
+            weights_out = []
+            for i, t in enumerate(available_tickers):
+                weights_out.append({
+                    "ticker": t,
+                    "current_pct": round(current_weights[i] * 100, 2),
+                    "optimal_pct": round(opt_w[i] * 100, 2),
+                })
+
+            # Current portfolio point for frontier chart
+            curr_ret = float(returns_df.mean().values @ current_weights) * 252
+            curr_vol = float(np.sqrt(current_weights @ cov @ current_weights))
+
+            result["optimization"] = {
+                "weights": weights_out,
+                "frontier": frontier,
+                "optimal_point": {"vol": round(opt_vol * 100, 2), "ret": round(mean_ret * 100, 2)},
+                "current_point": {"vol": round(curr_vol * 100, 2), "ret": round(curr_ret * 100, 2)},
+                "summary": {
+                    "sharpe": round(opt_sharpe, 2),
+                    "expected_return": round(mean_ret * 100, 2),
+                    "expected_vol": round(opt_vol * 100, 2),
+                },
+            }
+
+        elif mode == "optimize_income":
+            yields_list = [yield_map.get(t, 0) for t in available_tickers]
+            opt_w = _optimize_income(returns_df, yields_list, min_sharpe=min_sharpe, max_dd=max_dd)
+
+            opt_yield = float(opt_w.dot(np.array(yields_list)))
+            curr_yield = float(current_weights.dot(np.array(yields_list)))
+
+            opt_sharpe_val = _portfolio_sharpe(opt_w, returns_df)
+            opt_dd_val = _portfolio_max_dd(opt_w, returns_df)
+
+            # Estimate annual income
+            total_portfolio_val = total_val
+            curr_income = curr_yield * total_portfolio_val
+            opt_income = opt_yield * total_portfolio_val
+
+            weights_out = []
+            for i, t in enumerate(available_tickers):
+                weights_out.append({
+                    "ticker": t,
+                    "current_pct": round(current_weights[i] * 100, 2),
+                    "optimal_pct": round(opt_w[i] * 100, 2),
+                    "yield_pct": round(yields_list[i] * 100, 2),
+                })
+
+            # Yield vs risk scatter data
+            scatter_data = []
+            for i, t in enumerate(available_tickers):
+                tc = close[t].dropna()
+                tr = tc.pct_change().dropna()
+                vol = float(tr.std() * np.sqrt(252)) if len(tr) > 1 else 0
+                scatter_data.append({
+                    "ticker": t,
+                    "yield_pct": round(yields_list[i] * 100, 2),
+                    "vol_pct": round(vol * 100, 2),
+                    "is_optimal": float(opt_w[i]) > 0.01,
+                })
+
+            result["optimization"] = {
+                "weights": weights_out,
+                "scatter": scatter_data,
+                "summary": {
+                    "sharpe": round(opt_sharpe_val, 2),
+                    "max_dd": round(opt_dd_val * 100, 2),
+                    "opt_yield": round(opt_yield * 100, 2),
+                    "curr_yield": round(curr_yield * 100, 2),
+                    "opt_income": round(opt_income, 2),
+                    "curr_income": round(curr_income, 2),
+                },
+            }
+
+        elif mode == "optimize_balanced":
+            balance = float(request.args.get("balance", "0.5"))
+            yields_list = [yield_map.get(t, 0) for t in available_tickers]
+            opt_w = _optimize_balanced(returns_df, yields_list, balance=balance)
+
+            opt_yield = float(opt_w.dot(np.array(yields_list)))
+            curr_yield = float(current_weights.dot(np.array(yields_list)))
+            opt_sharpe_val = _portfolio_sharpe(opt_w, returns_df)
+            curr_sharpe_val = _portfolio_sharpe(current_weights, returns_df)
+            opt_dd_val = _portfolio_max_dd(opt_w, returns_df)
+            opt_income = opt_yield * total_val
+            curr_income = curr_yield * total_val
+
+            weights_out = []
+            for i, t in enumerate(available_tickers):
+                weights_out.append({
+                    "ticker": t,
+                    "current_pct": round(current_weights[i] * 100, 2),
+                    "optimal_pct": round(opt_w[i] * 100, 2),
+                    "yield_pct": round(yields_list[i] * 100, 2),
+                })
+
+            # Scatter: yield vs vol, sized by Sharpe, coloured by in-optimal
+            scatter_data = []
+            for i, t in enumerate(available_tickers):
+                tc = close[t].dropna()
+                tr = tc.pct_change().dropna()
+                vol = float(tr.std() * np.sqrt(252)) if len(tr) > 1 else 0
+                sharpe_t = safe(_sharpe(tc))
+                scatter_data.append({
+                    "ticker": t,
+                    "yield_pct": round(yields_list[i] * 100, 2),
+                    "vol_pct": round(vol * 100, 2),
+                    "sharpe": sharpe_t if sharpe_t is not None else 0,
+                    "is_optimal": float(opt_w[i]) > 0.01,
+                })
+
+            result["optimization"] = {
+                "weights": weights_out,
+                "scatter": scatter_data,
+                "summary": {
+                    "opt_yield": round(opt_yield * 100, 2),
+                    "curr_yield": round(curr_yield * 100, 2),
+                    "opt_income": round(opt_income, 2),
+                    "curr_income": round(curr_income, 2),
+                    "opt_sharpe": round(opt_sharpe_val, 2),
+                    "curr_sharpe": round(curr_sharpe_val, 2),
+                    "max_dd": round(opt_dd_val * 100, 2),
+                    "balance": round(balance * 100),
+                },
+            }
+
+    return jsonify(result)
+
+
+# ── Portfolio Swap Advisor ─────────────────────────────────────────────────────
+
+@app.route("/portfolio_optimizer")
+def portfolio_optimizer():
+    """Swap Advisor shell page."""
+    pid = get_profile_id()
+    conn = get_connection()
+    try:
+        df = pd.read_sql("""
+            SELECT ticker, quantity, current_value, estim_payment_per_year
+            FROM dbo.all_account_info
+            WHERE current_value IS NOT NULL AND current_value > 0
+              AND profile_id = ?
+            ORDER BY ticker
+        """, conn, params=[pid])
+    except Exception:
+        df = pd.DataFrame()
+    conn.close()
+    tickers = df["ticker"].tolist() if not df.empty else []
+    portfolio_set = set(tickers)
+    db_holdings = []
+    if not df.empty:
+        for _, r in df.iterrows():
+            if pd.notna(r.get("quantity")) and r["quantity"] > 0:
+                db_holdings.append({
+                    "ticker": r["ticker"],
+                    "shares": round(float(r["quantity"]), 4),
+                })
+    return render_template(
+        "portfolio_optimizer.html",
+        tickers=tickers,
+        candidates=SWAP_CANDIDATES,
+        portfolio_set=portfolio_set,
+        db_holdings=db_holdings,
+    )
+
+
+@app.route("/portfolio_optimizer/data")
+def portfolio_optimizer_data():
+    """AJAX: mode=score scores all holdings; mode=swaps finds replacements."""
+    import warnings, math
+    import numpy as np
+    warnings.filterwarnings("ignore")
+    import yfinance as yf
+
+    mode = request.args.get("mode", "score")
+    benchmark = request.args.get("benchmark", "SPY")
+    period = request.args.get("period", "1y")
+    income_floor = float(request.args.get("income_floor", "0.95"))
+
+    from datetime import date as date_type
+    period_map = {
+        "1mo": dict(period="1mo"), "3mo": dict(period="3mo"),
+        "6mo": dict(period="6mo"), "ytd": dict(period="ytd"),
+        "1y": dict(period="1y"), "2y": dict(period="2y"),
+        "5y": dict(period="5y"), "max": dict(period="max"),
+    }
+    if period.isdigit() and len(period) == 4:
+        yr = int(period)
+        today = date_type.today()
+        start = f"{yr}-01-01"
+        end = today.strftime("%Y-%m-%d") if yr == today.year else f"{yr}-12-31"
+        yf_kwargs = dict(start=start, end=end)
+    else:
+        yf_kwargs = period_map.get(period, dict(period="1y"))
+
+    # Fetch portfolio data from DB
+    _po_pid = get_profile_id()
+    conn = get_connection()
+    try:
+        db_df = pd.read_sql("""
+            SELECT ticker, current_value, estim_payment_per_year
+            FROM dbo.all_account_info
+            WHERE current_value IS NOT NULL AND current_value > 0
+              AND profile_id = ?
+        """, conn, params=[_po_pid])
+    except Exception:
+        db_df = pd.DataFrame(columns=["ticker", "current_value", "estim_payment_per_year"])
+    conn.close()
+
+    if db_df.empty:
+        return jsonify({"error": "No portfolio data found."}), 400
+
+    total_val = float(db_df["current_value"].sum())
+    weight_map, income_map, value_map, yield_map = {}, {}, {}, {}
+    for _, r in db_df.iterrows():
+        t = r["ticker"]
+        cv = float(r["current_value"]) if r["current_value"] > 0 else 1.0
+        ep = float(r["estim_payment_per_year"]) if pd.notna(r["estim_payment_per_year"]) else 0.0
+        weight_map[t] = cv / total_val
+        income_map[t] = ep
+        value_map[t] = cv
+        yield_map[t] = ep / cv if cv > 0 else 0.0
+
+    port_tickers = db_df["ticker"].tolist()
+
+    # Custom portfolio override
+    custom_port_param = request.args.get("custom_portfolio", "")
+    if custom_port_param:
+        custom_entries = {}
+        for entry in custom_port_param.split(","):
+            parts = entry.strip().split(":")
+            if len(parts) == 2:
+                try:
+                    t, s = parts[0].strip().upper(), float(parts[1].strip())
+                    if s > 0:
+                        custom_entries[t] = s
+                except ValueError:
+                    pass
+        if custom_entries:
+            try:
+                price_raw = yf.download(
+                    " ".join(custom_entries.keys()),
+                    period="1d", progress=False, auto_adjust=True,
+                )
+            except Exception:
+                price_raw = pd.DataFrame()
+            prices = {}
+            if not price_raw.empty:
+                if isinstance(price_raw.columns, pd.MultiIndex):
+                    for t in custom_entries:
+                        if "Close" in price_raw.columns.get_level_values(0) and t in price_raw["Close"].columns:
+                            s = price_raw["Close"][t].dropna()
+                            if not s.empty:
+                                prices[t] = float(s.iloc[-1])
+                elif "Close" in price_raw.columns:
+                    first_t = list(custom_entries.keys())[0]
+                    s = price_raw["Close"].dropna()
+                    if not s.empty:
+                        prices[first_t] = float(s.iloc[-1])
+            db_income_by_ticker = {
+                r["ticker"]: float(r["estim_payment_per_year"] or 0)
+                for _, r in db_df.iterrows() if pd.notna(r.get("estim_payment_per_year"))
+            }
+            custom_values = {t: custom_entries[t] * prices.get(t, 0) for t in custom_entries}
+            total_custom = sum(custom_values.values()) or 1.0
+            weight_map = {t: custom_values[t] / total_custom for t in custom_entries}
+            value_map = custom_values
+            income_map = {t: db_income_by_ticker.get(t, 0.0) for t in custom_entries}
+            yield_map = {
+                t: income_map[t] / value_map[t] if value_map.get(t, 0) > 0 else 0.0
+                for t in custom_entries
+            }
+            port_tickers = list(custom_entries.keys())
+
+    def safe(v):
+        if v is None:
+            return None
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
+
+    def _ticker_score(tc, tr, bench_ret_s):
+        """Compute individual ticker risk score (0–100)."""
+        def sm(val, thr):
+            if val is None:
+                return None
+            exc, good, fair, poor = thr
+            if val >= exc: return 100.0
+            if val >= good: return 80 + 20 * (val - good) / (exc - good)
+            if val >= fair: return 60 + 20 * (val - fair) / (good - fair)
+            if val >= poor: return 40 + 20 * (val - poor) / (fair - poor)
+            return max(0.0, 40 * val / poor) if poor != 0 else 0.0
+
+        def sl(val, thr):
+            if val is None:
+                return None
+            exc, good, fair, poor = thr
+            if val <= exc: return 100.0
+            if val <= good: return 80 + 20 * (good - val) / (good - exc)
+            if val <= fair: return 60 + 20 * (fair - val) / (fair - good)
+            if val <= poor: return 40 + 20 * (poor - val) / (poor - fair)
+            return max(0.0, 20.0)
+
+        sharpe_v = safe(_sharpe(tc))
+        sortino_v = safe(_sortino(tc))
+        calmar_v = safe(_calmar(tc))
+        omega_v = safe(_omega(tr))
+        mdd_v = safe(_max_drawdown(tc))
+        _, dc = _capture_ratios(tr, bench_ret_s) if bench_ret_s is not None else (None, None)
+
+        mdd_pct = mdd_v * 100 if mdd_v is not None else None
+        sub = {
+            "sharpe":       sm(sharpe_v,  (1.5, 1.0, 0.5, 0.0)),
+            "sortino":      sm(sortino_v, (2.0, 1.5, 1.0, 0.5)),
+            "calmar":       sm(calmar_v,  (1.5, 1.0, 0.5, 0.2)),
+            "omega":        sm(omega_v,   (2.0, 1.5, 1.2, 1.0)),
+            "max_drawdown": sl(abs(mdd_pct) if mdd_pct is not None else None, (10, 20, 30, 40)),
+            "down_capture": sl(dc, (80, 90, 100, 120)),
+        }
+        gw = {"sharpe": 30, "sortino": 20, "calmar": 15,
+              "omega": 15, "max_drawdown": 15, "down_capture": 5}
+        tw = ts = 0.0
+        for k, w in gw.items():
+            sc = sub.get(k)
+            if sc is not None:
+                tw += w
+                ts += sc * w
+        ticker_score = round(ts / tw, 1) if tw > 0 else 0.0
+        return ticker_score, sharpe_v, sortino_v, calmar_v, omega_v, mdd_v, dc
+
+    # ── mode=score ──
+    if mode == "score":
+        all_dl = list(set(port_tickers + [benchmark]))
+        try:
+            raw = yf.download(" ".join(all_dl), **yf_kwargs, progress=False, auto_adjust=True)
+            if raw.empty:
+                return jsonify({"error": "No price data returned."}), 500
+        except Exception as e:
+            return jsonify({"error": f"yfinance error: {str(e)}"}), 500
+
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"].dropna(how="all")
+        else:
+            close = raw[["Close"]].dropna(how="all")
+            close.columns = [all_dl[0]]
+
+        bench_close = close[benchmark] if benchmark in close.columns else None
+        bench_ret = bench_close.pct_change().dropna() if bench_close is not None else None
+
+        holdings_out = []
+        for t in port_tickers:
+            if t not in close.columns:
+                continue
+            tc = close[t].dropna()
+            if len(tc) < 30:
+                continue
+            tr = tc.pct_change().dropna()
+            t_score, sharpe_v, sortino_v, calmar_v, omega_v, mdd_v, dc = _ticker_score(tc, tr, bench_ret)
+            up_cap, _ = _capture_ratios(tr, bench_ret) if bench_ret is not None else (None, None)
+
+            holdings_out.append({
+                "ticker": t,
+                "score": t_score,
+                "grade": _letter_grade(t_score),
+                "sharpe": safe(sharpe_v),
+                "sortino": safe(sortino_v),
+                "calmar": safe(calmar_v),
+                "omega": safe(omega_v),
+                "max_drawdown": round(mdd_v * 100, 2) if mdd_v is not None else None,
+                "up_capture": safe(up_cap),
+                "down_capture": safe(dc),
+                "weight": round(weight_map.get(t, 0) * 100, 2),
+                "annual_income": round(income_map.get(t, 0), 2),
+                "yield_pct": round(yield_map.get(t, 0) * 100, 2),
+                "current_value": round(value_map.get(t, 0), 2),
+            })
+
+        holdings_out.sort(key=lambda x: x["score"])
+
+        # Portfolio-level grade
+        avail = [h["ticker"] for h in holdings_out]
+        port_grade = {}
+        port_stats = {}
+        if len(avail) >= 2:
+            returns_df = close[avail].pct_change().dropna()
+            weights_arr = np.array([weight_map.get(t, 1.0 / len(avail)) for t in avail])
+            pm = _grade_portfolio(returns_df, weights_arr, bench_ret)
+            port_grade = pm.get("grade", {})
+            port_stats = {
+                "sharpe": safe(pm.get("sharpe")),
+                "sortino": safe(pm.get("sortino")),
+                "calmar": safe(pm.get("calmar")),
+                "omega": safe(pm.get("omega")),
+                "max_drawdown": round(pm["max_drawdown"] * 100, 2) if pm.get("max_drawdown") is not None else None,
+                "effective_n": pm.get("effective_n"),
+                "top_weight": pm.get("top_weight"),
+                "up_capture": safe(pm.get("up_capture")),
+                "down_capture": safe(pm.get("down_capture")),
+                "n_holdings": len(avail),
+            }
+
+        scored_tickers = [h["ticker"] for h in holdings_out]
+        skipped_tickers = [t for t in port_tickers if t not in scored_tickers]
+        return jsonify({
+            "portfolio_grade": port_grade,
+            "portfolio_stats": port_stats,
+            "holdings": holdings_out,
+            "skipped_tickers": skipped_tickers,
+        })
+
+    # ── mode=swaps ──
+    elif mode == "swaps":
+        weak_param = request.args.get("weak", "")
+        cands_param = request.args.get("candidates", "")
+
+        weak_tickers = [t.strip().upper() for t in weak_param.split(",") if t.strip()]
+        cand_tickers = [t.strip().upper() for t in cands_param.split(",") if t.strip()]
+
+        if not weak_tickers:
+            return jsonify({"error": "No weak tickers specified."}), 400
+        if not cand_tickers:
+            return jsonify({"error": "No candidates specified."}), 400
+
+        all_dl = list(set(port_tickers + weak_tickers + cand_tickers + [benchmark]))
+        try:
+            raw = yf.download(" ".join(all_dl), **yf_kwargs, progress=False, auto_adjust=True)
+            if raw.empty:
+                return jsonify({"error": "No price data returned."}), 500
+        except Exception as e:
+            return jsonify({"error": f"yfinance error: {str(e)}"}), 500
+
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"].dropna(how="all")
+        else:
+            close = raw[["Close"]].dropna(how="all")
+            close.columns = [all_dl[0]]
+
+        bench_close = close[benchmark] if benchmark in close.columns else None
+        bench_ret = bench_close.pct_change().dropna() if bench_close is not None else None
+
+        # Base portfolio (tickers with enough data)
+        avail_port = [t for t in port_tickers if t in close.columns and len(close[t].dropna()) >= 30]
+        if len(avail_port) < 2:
+            return jsonify({"error": "Not enough portfolio price data."}), 400
+
+        base_returns_df = close[avail_port].pct_change().dropna()
+        base_weights = np.array([weight_map.get(t, 1.0 / len(avail_port)) for t in avail_port])
+        base_pm = _grade_portfolio(base_returns_df, base_weights, bench_ret)
+        base_score = base_pm["grade"]["score"] if "grade" in base_pm else 0.0
+        base_grade = base_pm["grade"]["overall"] if "grade" in base_pm else "--"
+
+        # Candidate yields (DB first, then yfinance fast_info, then full .info)
+        cand_yields = {}
+        for c in cand_tickers:
+            if c in yield_map:
+                cand_yields[c] = yield_map[c]
+            else:
+                dy = 0.0
+                try:
+                    fi = yf.Ticker(c).fast_info
+                    dy = float(fi["dividend_yield"] or 0)
+                except Exception:
+                    dy = 0.0
+                if dy == 0.0:
+                    try:
+                        info = yf.Ticker(c).info
+                        dy = float(
+                            info.get("dividendYield") or
+                            info.get("trailingAnnualDividendYield") or
+                            info.get("yield") or 0
+                        )
+                    except Exception:
+                        dy = 0.0
+                cand_yields[c] = dy
+
+        swaps_out = {}
+        for wt in weak_tickers:
+            if wt not in close.columns:
+                continue
+
+            current_income = income_map.get(wt, 0.0)
+            current_value_wt = value_map.get(wt, 0.0)
+
+            # Individual score for the weak ticker
+            tc_wt = close[wt].dropna()
+            wt_score = 0.0
+            if len(tc_wt) >= 30:
+                tr_wt = tc_wt.pct_change().dropna()
+                wt_score, *_ = _ticker_score(tc_wt, tr_wt, bench_ret)
+
+            candidates_out = []
+            for c in cand_tickers:
+                if c not in close.columns:
+                    continue
+                cc = close[c].dropna()
+                if len(cc) < 30:
+                    continue
+
+                # Income floor check
+                c_yield = cand_yields.get(c, 0.0)
+                new_income = c_yield * current_value_wt
+                if current_income > 0:
+                    income_ratio = new_income / current_income
+                    if income_ratio < income_floor:
+                        continue
+                else:
+                    income_ratio = 1.0
+
+                # Build swapped portfolio returns
+                if wt in avail_port:
+                    swap_idx = avail_port.index(wt)
+                    swap_tickers = list(avail_port)
+                    swap_tickers[swap_idx] = c
+                    cols = []
+                    for i, t in enumerate(avail_port):
+                        if i == swap_idx:
+                            cols.append(cc.rename(c))
+                        else:
+                            cols.append(close[t])
+                    swapped_close = pd.concat(cols, axis=1)
+                    swapped_close.columns = swap_tickers
+                else:
+                    swap_tickers = avail_port + [c]
+                    swapped_close = pd.concat([close[avail_port], cc.rename(c)], axis=1)
+                    swap_tickers = list(swapped_close.columns)
+
+                swapped_close = swapped_close.dropna(how="all")
+                if len(swapped_close) < 30:
+                    continue
+
+                swapped_returns = swapped_close.pct_change().dropna()
+                swapped_weights = np.array([
+                    weight_map.get(t, 1.0 / len(swap_tickers)) for t in swap_tickers
+                ])
+                try:
+                    new_pm = _grade_portfolio(swapped_returns, swapped_weights, bench_ret)
+                    new_score = new_pm["grade"]["score"] if "grade" in new_pm else 0.0
+                    new_grade = new_pm["grade"]["overall"] if "grade" in new_pm else "--"
+                except Exception:
+                    continue
+
+                improvement = round(new_score - base_score, 1)
+
+                cr = cc.pct_change().dropna()
+                candidates_out.append({
+                    "ticker": c,
+                    "score_after": round(new_score, 1),
+                    "grade_after": new_grade,
+                    "improvement": improvement,
+                    "new_income": round(new_income, 2),
+                    "income_ratio": round(income_ratio, 3),
+                    "sharpe": safe(_sharpe(cc)),
+                    "sortino": safe(_sortino(cc)),
+                    "yield_pct": round(c_yield * 100, 2),
+                })
+
+            candidates_out.sort(key=lambda x: x["improvement"], reverse=True)
+            swaps_out[wt] = {
+                "current_score": wt_score,
+                "current_grade": _letter_grade(wt_score),
+                "current_income": round(current_income, 2),
+                "current_value": round(current_value_wt, 2),
+                "candidates": candidates_out[:5],
+            }
+
+        return jsonify({
+            "base_score": round(base_score, 1),
+            "base_grade": base_grade,
+            "portfolio_tickers_used": avail_port,
+            "swaps": swaps_out,
+        })
+
+    return jsonify({"error": "Unknown mode."}), 400
+
+
+# ── Profile management routes ─────────────────────────────────────────────────
+
+@app.route("/profiles")
+def profiles_page():
+    """List all profiles, showing which is active."""
+    conn = get_connection()
+    ensure_tables_exist(conn)
+    try:
+        all_profiles_df = pd.read_sql(
+            "SELECT id, name, created_at FROM dbo.profiles ORDER BY id", conn
+        )
+        profiles = all_profiles_df.to_dict('records')
+    except Exception:
+        profiles = []
+    finally:
+        conn.close()
+    return render_template("profiles.html", profiles=profiles)
+
+
+@app.route("/profiles/create", methods=["POST"])
+def profiles_create():
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("Profile name cannot be empty.", "error")
+        return redirect(url_for("profiles_page"))
+    conn = get_connection()
+    ensure_tables_exist(conn)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO dbo.profiles (name) VALUES (?)", name)
+        conn.commit()
+        # Get the new profile's id
+        cursor.execute("SELECT MAX(id) FROM dbo.profiles")
+        new_id = cursor.fetchone()[0]
+        session['profile_id'] = new_id
+        flash(f"Profile '{name}' created. You are now viewing it.", "success")
+    except Exception as e:
+        flash(f"Failed to create profile: {e}", "error")
+        conn.close()
+        return redirect(url_for("profiles_page"))
+    conn.close()
+    return redirect(url_for("portfolio_setup"))
+
+
+@app.route("/profiles/switch/<int:pid>", methods=["POST"])
+def profiles_switch(pid):
+    session['profile_id'] = pid
+    return redirect(request.referrer or url_for('index'))
+
+
+@app.route("/profiles/delete/<int:pid>", methods=["POST"])
+def profiles_delete(pid):
+    if pid == 1:
+        flash("Cannot delete the Owner profile.", "error")
+        return redirect(url_for("profiles_page"))
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Delete all data for this profile from profiled tables
+        for table in [
+            "all_account_info", "income_tracking",
+            "weekly_payouts", "weekly_payout_tickers",
+            "monthly_payouts", "monthly_payout_tickers",
+        ]:
+            cursor.execute(f"DELETE FROM dbo.{table} WHERE profile_id = ?", pid)
+        cursor.execute("DELETE FROM dbo.profiles WHERE id = ?", pid)
+        conn.commit()
+        # Reset session to owner if deleted profile was active
+        if int(session.get('profile_id', 1)) == pid:
+            session['profile_id'] = 1
+        flash("Profile deleted.", "success")
+    except Exception as e:
+        flash(f"Failed to delete profile: {e}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("profiles_page"))
+
+
+# ── Portfolio setup routes ────────────────────────────────────────────────────
+
+@app.route("/portfolio/refresh", methods=["POST"])
+def portfolio_refresh():
+    """Re-enrich the current non-Owner profile's holdings from yfinance."""
+    pid = get_profile_id()
+    if pid == 1:
+        flash("Use the Import Data button to refresh the Owner profile.", "error")
+        return redirect(url_for("index"))
+    conn = get_connection()
+    try:
+        df = pd.read_sql(
+            "SELECT ticker, quantity, price_paid, reinvest "
+            "FROM dbo.all_account_info WHERE profile_id = ?",
+            conn, params=[pid]
+        )
+    except Exception as e:
+        conn.close()
+        flash(f"Could not read holdings: {e}", "error")
+        return redirect(url_for("index"))
+    finally:
+        conn.close()
+
+    if df.empty:
+        flash("No holdings found. Add your portfolio first.", "error")
+        return redirect(url_for("portfolio_setup"))
+
+    try:
+        row_count, msg = import_from_upload(df, pid)
+        flash(f"Refreshed {row_count} holdings with latest prices and dividend data.", "success")
+    except Exception as e:
+        flash(f"Refresh failed: {e}", "error")
+    return redirect(url_for("index"))
+
+
+@app.route("/portfolio/setup")
+def portfolio_setup():
+    """Upload CSV/XLSX or manually enter holdings for the current profile."""
+    pid = get_profile_id()
+    conn = get_connection()
+    try:
+        holdings_df = pd.read_sql(
+            "SELECT ticker, quantity, price_paid, reinvest "
+            "FROM dbo.all_account_info WHERE profile_id = ? ORDER BY ticker",
+            conn, params=[pid]
+        )
+        if not holdings_df.empty:
+            holdings_df = holdings_df.where(pd.notnull(holdings_df), None)
+            existing_holdings = holdings_df.to_dict('records')
+        else:
+            existing_holdings = []
+    except Exception:
+        existing_holdings = []
+    finally:
+        conn.close()
+    return render_template("portfolio_setup.html", existing_holdings=existing_holdings)
+
+
+@app.route("/portfolio/template")
+def portfolio_template():
+    """Return a CSV template file for download."""
+    csv_content = (
+        "Ticker,Shares,Price Paid,Div/Share,Div Frequency,Ex-Div Date,DRIP\n"
+        "JEPI,100,54.50,0.43,M,2025-01-22,Y\n"
+        "SCHD,50,28.10,0.2786,Q,2025-01-17,N\n"
+        "O,25,55.00,0.2635,M,2025-01-30,N\n"
+    )
+    return Response(
+        csv_content,
+        mimetype='text/csv',
+        headers={"Content-Disposition": "attachment;filename=portfolio_template.csv"},
+    )
+
+
+@app.route("/portfolio/upload", methods=["POST"])
+def portfolio_upload():
+    """Handle CSV/XLSX file upload, enrich via yfinance, write to all_account_info."""
+    pid = get_profile_id()
+    f = request.files.get("file")
+    if not f or not f.filename:
+        flash("No file selected.", "error")
+        return redirect(url_for("portfolio_setup"))
+
+    filename = f.filename.lower()
+    try:
+        if filename.endswith(".csv"):
+            df = pd.read_csv(f)
+        elif filename.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(f)
+        else:
+            flash("Unsupported file type. Please upload a .csv or .xlsx file.", "error")
+            return redirect(url_for("portfolio_setup"))
+
+        row_count, msg = import_from_upload(df, pid)
+        flash(msg, "success")
+    except Exception as e:
+        flash(f"Upload failed: {e}", "error")
+        return redirect(url_for("portfolio_setup"))
+
+    return redirect(url_for("index"))
+
+
+@app.route("/portfolio/manual_save", methods=["POST"])
+def portfolio_manual_save():
+    """Accept JSON array of {ticker, shares, price_paid} and write to DB."""
+    pid = get_profile_id()
+    try:
+        rows = request.get_json()
+        if not rows:
+            return jsonify({"error": "No data provided."}), 400
+
+        df = pd.DataFrame(rows)
+        # Rename to expected canonical names
+        df = df.rename(columns={
+            'shares':     'quantity',
+            'price_paid': 'price_paid',
+        })
+
+        row_count, msg = import_from_upload(df, pid)
+        return jsonify({"success": True, "message": msg, "count": row_count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

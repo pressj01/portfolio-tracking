@@ -1,0 +1,846 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 style="margin-bottom:0.3rem">Portfolio Analytics &amp; Optimization</h1>
+<p style="color:#aaa;margin-top:0;margin-bottom:1.2rem;font-size:0.875rem">
+  Risk-adjusted metrics, capture ratios, and portfolio optimization
+</p>
+
+<!-- ── Controls ── -->
+<div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;margin-bottom:1.2rem">
+  <div>
+    <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:2px">Benchmark</label>
+    <input id="pa-bench" type="text" value="SPY"
+           style="width:80px;padding:0.3rem 0.5rem;background:#111124;border:1px solid #333;
+                  border-radius:4px;color:#ddd;font-size:0.85rem;text-transform:uppercase">
+  </div>
+  <div>
+    <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:2px">Period</label>
+    <div id="pa-periods" style="display:flex;gap:3px">
+      {% for p, lbl in [("1mo","1M"),("3mo","3M"),("6mo","6M"),("ytd","YTD"),("1y","1Y"),("2y","2Y"),("5y","5Y"),("max","Max")] %}
+      <button data-period="{{ p }}" class="pa-period-btn{{ ' pa-period-active' if p == '1y' else '' }}"
+              style="padding:0.28rem 0.6rem;background:{{ '#1a1a3a' if p != '1y' else '#7ecfff' }};
+                     border:1px solid #444;border-radius:4px;color:{{ '#aaa' if p != '1y' else '#000' }};
+                     font-size:0.8rem;cursor:pointer">{{ lbl }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  <div>
+    <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:2px">Add from Portfolio</label>
+    <div style="display:flex;gap:4px">
+      <select id="pa-ticker-dropdown"
+              style="padding:0.3rem 0.4rem;background:#111124;border:1px solid #333;
+                     border-radius:4px;color:#ddd;font-size:0.85rem;min-width:90px">
+        <option value="">-- pick --</option>
+        {% for t in tickers %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+      <button onclick="addFromDropdown()"
+              style="padding:0.3rem 0.6rem;background:#1a1a3a;border:1px solid #7ecfff;
+                     border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer">Add</button>
+    </div>
+  </div>
+  <div>
+    <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:2px">Add Custom Ticker</label>
+    <div style="display:flex;gap:4px">
+      <input id="pa-add-ticker" type="text" placeholder="e.g. SCHD"
+             style="width:90px;padding:0.3rem 0.5rem;background:#111124;border:1px solid #333;
+                    border-radius:4px;color:#ddd;font-size:0.85rem;text-transform:uppercase">
+      <button onclick="addTicker()"
+              style="padding:0.3rem 0.6rem;background:#1a1a3a;border:1px solid #7ecfff;
+                     border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer">Add</button>
+    </div>
+  </div>
+  <button onclick="loadMetrics()" id="pa-run-btn"
+          style="padding:0.4rem 1.2rem;background:linear-gradient(135deg,#7ecfff 0%,#4a90d9 100%);
+                 border:none;border-radius:5px;color:#000;font-weight:600;font-size:0.88rem;cursor:pointer">
+    Analyze
+  </button>
+  <button onclick="clearTickers()"
+          style="padding:0.4rem 0.9rem;background:transparent;border:1px solid #f66;
+                 border-radius:5px;color:#f66;font-size:0.85rem;cursor:pointer">
+    Clear
+  </button>
+  <button onclick="loadPortfolio()"
+          style="padding:0.4rem 0.9rem;background:transparent;border:1px solid #7ecfff;
+                 border-radius:5px;color:#7ecfff;font-size:0.85rem;cursor:pointer">
+    Load Portfolio
+  </button>
+</div>
+
+<!-- Ticker chips -->
+<div id="pa-ticker-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem">
+  {% for t in tickers %}
+  <span class="pa-chip" data-ticker="{{ t }}">{{ t }}
+    <span onclick="removeTicker('{{ t }}')" style="cursor:pointer;margin-left:4px;color:#f66">&times;</span>
+  </span>
+  {% endfor %}
+</div>
+
+<!-- Spinner -->
+<div id="pa-spinner" style="display:none;flex-direction:column;align-items:center;padding:4rem 0;gap:1rem">
+  <div style="width:48px;height:48px;border:5px solid #2a2a3e;border-top-color:#7ecfff;border-radius:50%;animation:pa-spin 0.75s linear infinite"></div>
+  <p style="color:#aaa;margin:0;font-size:0.9rem" id="pa-spinner-msg">Fetching data &amp; calculating metrics&hellip;</p>
+</div>
+<style>@keyframes pa-spin { to { transform: rotate(360deg); } }</style>
+
+<!-- Error -->
+<div id="pa-error" style="display:none" class="flash error"></div>
+
+<!-- ── Portfolio Grade Card ── -->
+<div id="pa-grade-section" style="display:none;margin-bottom:1.5rem">
+  <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-start">
+    <!-- Big grade circle -->
+    <div id="pa-grade-circle" class="pa-grade-ring">
+      <div class="pa-grade-letter" id="pa-grade-letter">--</div>
+      <div class="pa-grade-score" id="pa-grade-score">0 / 100</div>
+    </div>
+    <!-- Breakdown bars -->
+    <div style="flex:1;min-width:280px">
+      <h2 style="margin:0 0 0.5rem 0;font-size:1.05rem;color:#7ecfff">Portfolio Report Card</h2>
+      <div id="pa-grade-breakdown"></div>
+    </div>
+    <!-- Quick stats -->
+    <div style="display:flex;flex-direction:column;gap:0.5rem;min-width:160px">
+      <div class="pa-summary-card" style="padding:0.4rem 0.8rem">
+        <div class="pa-card-val" style="font-size:1.1rem" id="pa-stat-holdings">--</div>
+        <div class="pa-card-lbl">Holdings</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.4rem 0.8rem">
+        <div class="pa-card-val" style="font-size:1.1rem" id="pa-stat-effn">--</div>
+        <div class="pa-card-lbl">Effective N</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.4rem 0.8rem">
+        <div class="pa-card-val" style="font-size:1.1rem" id="pa-stat-mdd">--</div>
+        <div class="pa-card-lbl">Max Drawdown</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.4rem 0.8rem">
+        <div class="pa-card-val" style="font-size:1.1rem" id="pa-stat-topwt">--</div>
+        <div class="pa-card-lbl">Top Holding Wt</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.4rem 0.8rem">
+        <div class="pa-card-val" style="font-size:1.1rem;color:#00e89a" id="pa-stat-annual-income">--</div>
+        <div class="pa-card-lbl">Est. Annual Income</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.4rem 0.8rem">
+        <div class="pa-card-val" style="font-size:1.1rem;color:#00e89a" id="pa-stat-monthly-income">--</div>
+        <div class="pa-card-lbl">Est. Monthly Income</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Section 1: Metrics ── -->
+<div id="pa-metrics-section" style="display:none">
+  <h2 style="margin-bottom:0.6rem;font-size:1.1rem;color:#7ecfff">Risk-Adjusted Metrics</h2>
+
+  <!-- Ratio Reference -->
+  <details style="margin-bottom:0.8rem">
+    <summary style="cursor:pointer;color:#7ecfff;font-size:0.83rem;user-select:none;list-style:none;display:inline-flex;align-items:center;gap:4px">
+      <span style="font-size:0.9rem">&#9432;</span> What do these ratios mean?
+    </summary>
+    <div style="padding:0.75rem;background:#0d0d1f;border:1px solid #2a2a3e;border-radius:6px;margin-top:0.4rem;
+                display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0.55rem 1.5rem;font-size:0.8rem;color:#aaa">
+      <div><strong style="color:#ddd">Sharpe</strong> — Annualized excess return divided by total volatility (std dev). Measures return earned per unit of risk. &gt;1.0 good, &gt;1.5 excellent.</div>
+      <div><strong style="color:#ddd">Sortino</strong> — Like Sharpe but only penalizes <em>downside</em> volatility — losses don't hurt the same as gains. &gt;1.5 good, &gt;2.0 excellent.</div>
+      <div><strong style="color:#ddd">Calmar</strong> — Annualized return divided by the maximum drawdown. A Calmar of 1 means you earned back the worst drop in one year. &gt;0.5 fair, &gt;1.0 good.</div>
+      <div><strong style="color:#ddd">Omega</strong> — Ratio of all gains above a threshold to all losses below it. Unlike Sharpe, uses the full return distribution, not just std dev. &gt;1.2 fair, &gt;1.5 good, &gt;2.0 excellent.</div>
+      <div><strong style="color:#ddd">Up Capture</strong> — How much of the benchmark's up-day returns this ticker captured. 100% = moves exactly with the benchmark on up days. For income ETFs 60–90% is typical and fine.</div>
+      <div><strong style="color:#ddd">Down Capture</strong> — How much of the benchmark's down-day losses this ticker absorbed. Lower is better. &lt;80% excellent, &lt;90% good, &gt;100% means it lost more than the benchmark.</div>
+    </div>
+  </details>
+
+  <div style="overflow-x:auto;max-height:520px;overflow-y:auto">
+    <table class="pa-table" id="pa-metrics-table">
+      <thead>
+        <tr>
+          <th data-col="ticker" style="cursor:pointer">Ticker</th>
+          <th data-col="weight" style="cursor:pointer">Weight %</th>
+          <th data-col="sharpe" style="cursor:pointer">Sharpe</th>
+          <th data-col="sortino" style="cursor:pointer">Sortino</th>
+          <th data-col="calmar" style="cursor:pointer">Calmar</th>
+          <th data-col="omega" style="cursor:pointer">Omega</th>
+          <th data-col="up_capture" style="cursor:pointer">Up Capture</th>
+          <th data-col="down_capture" style="cursor:pointer">Down Capture</th>
+        </tr>
+      </thead>
+      <tbody id="pa-metrics-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Section 1b: Charts ── -->
+<div id="pa-charts-section" style="display:none;margin-top:2rem">
+  <h2 style="margin-bottom:0.6rem;font-size:1.1rem;color:#7ecfff">Risk &amp; Performance Charts</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:1.5rem">
+    <div style="flex:1;min-width:360px">
+      <div id="pa-scatter-chart" style="width:100%;height:420px"></div>
+    </div>
+    <div style="flex:1;min-width:360px">
+      <div id="pa-corr-chart" style="width:100%;height:420px"></div>
+    </div>
+  </div>
+  <div style="margin-top:1rem">
+    <div id="pa-drawdown-chart" style="width:100%;height:260px"></div>
+  </div>
+</div>
+
+<!-- ── Section 2: Optimization ── -->
+<div id="pa-opt-section" style="display:none;margin-top:2rem">
+  <h2 style="margin-bottom:0.6rem;font-size:1.1rem;color:#7ecfff">Portfolio Optimization</h2>
+
+  <div style="display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap">
+    <button id="pa-opt-returns-btn" onclick="runOptimize('optimize_returns')"
+            class="pa-opt-btn pa-opt-active"
+            style="padding:0.35rem 1rem;border-radius:4px;font-size:0.85rem;cursor:pointer">
+      Optimize Returns</button>
+    <button id="pa-opt-income-btn" onclick="runOptimize('optimize_income')"
+            class="pa-opt-btn"
+            style="padding:0.35rem 1rem;border-radius:4px;font-size:0.85rem;cursor:pointer">
+      Optimize Income</button>
+    <button id="pa-opt-balanced-btn" onclick="runOptimize('optimize_balanced')"
+            class="pa-opt-btn"
+            style="padding:0.35rem 1rem;border-radius:4px;font-size:0.85rem;cursor:pointer">
+      Income + Safety</button>
+  </div>
+
+  <!-- Balanced optimization controls -->
+  <div id="pa-balanced-controls" style="display:none;margin-bottom:1rem;padding:0.8rem;background:#111124;border:1px solid #333;border-radius:6px">
+    <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center">
+      <div>
+        <label style="font-size:0.78rem;color:#888">
+          Balance — Safety
+          <input id="pa-balance" type="range" min="0" max="1" step="0.05" value="0.5"
+                 oninput="updateBalanceLabel()"
+                 style="width:200px;display:inline-block;margin:0 0.5rem;vertical-align:middle">
+          Income &nbsp;<span id="pa-balance-val" style="color:#7ecfff;font-weight:600">50/50</span>
+        </label>
+        <div style="font-size:0.72rem;color:#555;margin-top:3px">
+          Blends dividend yield (income) with Sharpe ratio (safety). Slide toward Income for higher yield, toward Safety for lower volatility.
+        </div>
+      </div>
+      <button onclick="runOptimize('optimize_balanced')"
+              style="padding:0.3rem 0.8rem;background:#1a1a3a;border:1px solid #7ecfff;
+                     border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer">
+        Re-optimize</button>
+    </div>
+  </div>
+
+  <!-- Income optimization controls -->
+  <div id="pa-income-controls" style="display:none;margin-bottom:1rem;padding:0.8rem;background:#111124;border:1px solid #333;border-radius:6px">
+    <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center">
+      <div>
+        <label style="font-size:0.78rem;color:#888">Min Sharpe: <span id="pa-min-sharpe-val">0.50</span></label>
+        <input id="pa-min-sharpe" type="range" min="0" max="2" step="0.05" value="0.5"
+               oninput="document.getElementById('pa-min-sharpe-val').textContent=parseFloat(this.value).toFixed(2)"
+               style="width:160px;display:block;margin-top:3px">
+      </div>
+      <div>
+        <label style="font-size:0.78rem;color:#888">Max Drawdown: <span id="pa-max-dd-val">-30%</span></label>
+        <input id="pa-max-dd" type="range" min="-60" max="-5" step="1" value="-30"
+               oninput="document.getElementById('pa-max-dd-val').textContent=this.value+'%'"
+               style="width:160px;display:block;margin-top:3px">
+      </div>
+      <button onclick="runOptimize('optimize_income')"
+              style="padding:0.3rem 0.8rem;background:#1a1a3a;border:1px solid #7ecfff;
+                     border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer">
+        Re-optimize</button>
+    </div>
+  </div>
+
+  <!-- Optimization results -->
+  <div id="pa-opt-results" style="display:none">
+    <!-- Summary cards -->
+    <div id="pa-opt-summary" style="display:flex;flex-wrap:wrap;gap:1rem;margin-bottom:1.2rem"></div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:1.5rem">
+      <!-- Weights table -->
+      <div style="flex:1;min-width:320px">
+        <h3 style="font-size:0.95rem;color:#aaa;margin-bottom:0.4rem">Optimal Allocation</h3>
+        <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
+          <table class="pa-table" id="pa-opt-table">
+            <thead><tr id="pa-opt-thead"></tr></thead>
+            <tbody id="pa-opt-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Chart -->
+      <div style="flex:1;min-width:400px">
+        <div id="pa-opt-chart" style="width:100%;height:450px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.pa-chip {
+  display:inline-flex;align-items:center;padding:0.2rem 0.6rem;
+  background:#1a1a3a;border:1px solid #444;border-radius:12px;
+  font-size:0.8rem;color:#ddd;
+}
+.pa-table { width:100%;border-collapse:collapse;font-size:0.84rem; }
+.pa-table th { background:#111124;color:#7ecfff;padding:0.45rem 0.6rem;text-align:right;
+               border-bottom:2px solid #333;white-space:nowrap;user-select:none;
+               position:sticky;top:0;z-index:2; }
+.pa-table th:first-child { text-align:left; }
+.pa-table td { padding:0.4rem 0.6rem;border-bottom:1px solid #222;text-align:right;color:#ddd; }
+.pa-table td:first-child { text-align:left;font-weight:600; }
+.pa-table tr.pa-portfolio-row { background:#0d1a2a;font-weight:700; }
+.pa-table tr.pa-portfolio-row td { border-top:2px solid #7ecfff;color:#7ecfff; }
+.pa-table tbody tr:hover { background:#1a1a2e; }
+.pa-opt-btn { background:#1a1a3a;border:1px solid #444;color:#aaa; }
+.pa-opt-btn.pa-opt-active { background:#7ecfff;color:#000;border-color:#7ecfff;font-weight:600; }
+.pa-good { color:#00e89a; }
+.pa-mid  { color:#f9a825; }
+.pa-bad  { color:#ff5252; }
+
+.pa-summary-card {
+  background:#111124;border:1px solid #333;border-radius:8px;padding:0.6rem 1.2rem;text-align:center;min-width:120px;
+}
+.pa-summary-card .pa-card-val { font-size:1.4rem;font-weight:700; }
+.pa-summary-card .pa-card-lbl { font-size:0.72rem;color:#888;margin-top:2px; }
+
+th.pa-sort-asc::after  { content:" \25B2"; font-size:0.65rem; }
+th.pa-sort-desc::after { content:" \25BC"; font-size:0.65rem; }
+
+/* ── Grade card ── */
+.pa-grade-ring {
+  width:140px;height:140px;border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  border:5px solid #333;position:relative;flex-shrink:0;
+}
+.pa-grade-letter { font-size:2.6rem;font-weight:800;line-height:1; }
+.pa-grade-score  { font-size:0.78rem;color:#888;margin-top:2px; }
+
+.pa-grade-A  { border-color:#00e89a; }
+.pa-grade-A .pa-grade-letter  { color:#00e89a; }
+.pa-grade-B  { border-color:#7ecfff; }
+.pa-grade-B .pa-grade-letter  { color:#7ecfff; }
+.pa-grade-C  { border-color:#f9a825; }
+.pa-grade-C .pa-grade-letter  { color:#f9a825; }
+.pa-grade-D  { border-color:#ff8a50; }
+.pa-grade-D .pa-grade-letter  { color:#ff8a50; }
+.pa-grade-F  { border-color:#ff5252; }
+.pa-grade-F .pa-grade-letter  { color:#ff5252; }
+
+.pa-breakdown-row { display:flex;align-items:center;gap:0.6rem;margin-bottom:0.45rem; }
+.pa-breakdown-label { width:130px;font-size:0.78rem;color:#aaa;text-align:right;flex-shrink:0; }
+.pa-breakdown-bar-bg { flex:1;height:14px;background:#1a1a2e;border-radius:3px;overflow:hidden;position:relative; }
+.pa-breakdown-bar { height:100%;border-radius:3px;transition:width 0.6s ease; }
+.pa-breakdown-grade { width:28px;font-size:0.78rem;font-weight:700;text-align:center; }
+.pa-breakdown-weight { width:32px;font-size:0.68rem;color:#666;text-align:right; }
+</style>
+
+<script>
+(function(){
+  var activePeriod = "1y";
+  var activeOptMode = "optimize_returns";
+  var tickerList = {{ tickers | tojson }};
+  var allPortfolioTickers = {{ tickers | tojson }};
+  var sortCol = null, sortAsc = true;
+  var metricsData = [];
+
+  // Period buttons
+  document.querySelectorAll(".pa-period-btn").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      document.querySelectorAll(".pa-period-btn").forEach(function(b){
+        b.style.background="#1a1a3a"; b.style.color="#aaa"; b.classList.remove("pa-period-active");
+      });
+      this.style.background="#7ecfff"; this.style.color="#000"; this.classList.add("pa-period-active");
+      activePeriod = this.getAttribute("data-period");
+    });
+  });
+
+  window.addFromDropdown = function(){
+    var sel = document.getElementById("pa-ticker-dropdown");
+    var t = sel.value.trim().toUpperCase();
+    if(!t || tickerList.indexOf(t) >= 0){ sel.value = ""; return; }
+    tickerList.push(t);
+    renderChips();
+    sel.value = "";
+  };
+
+  window.addTicker = function(){
+    var inp = document.getElementById("pa-add-ticker");
+    var t = inp.value.trim().toUpperCase();
+    if(!t || tickerList.indexOf(t) >= 0) return;
+    tickerList.push(t);
+    renderChips();
+    inp.value = "";
+  };
+
+  // Allow Enter key in add-ticker input
+  document.getElementById("pa-add-ticker").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); window.addTicker(); }
+  });
+
+  window.removeTicker = function(t){
+    tickerList = tickerList.filter(function(x){ return x !== t; });
+    renderChips();
+  };
+
+  window.clearTickers = function(){
+    tickerList = [];
+    renderChips();
+  };
+
+  window.loadPortfolio = function(){
+    tickerList = allPortfolioTickers.slice();
+    renderChips();
+  };
+
+  function renderChips(){
+    var el = document.getElementById("pa-ticker-chips");
+    el.innerHTML = tickerList.map(function(t){
+      return '<span class="pa-chip" data-ticker="'+t+'">'+t+
+             ' <span onclick="removeTicker(\''+t+'\')" style="cursor:pointer;margin-left:4px;color:#f66">&times;</span></span>';
+    }).join("");
+    // Update dropdown — grey out already-added tickers
+    var opts = document.getElementById("pa-ticker-dropdown").options;
+    for(var i = 1; i < opts.length; i++){
+      opts[i].disabled = tickerList.indexOf(opts[i].value) >= 0;
+      opts[i].style.color = opts[i].disabled ? "#555" : "#ddd";
+    }
+  }
+
+  function gradeColor(letter){
+    if(!letter) return "#555";
+    var c = letter.charAt(0);
+    if(c === "A") return "#00e89a";
+    if(c === "B") return "#7ecfff";
+    if(c === "C") return "#f9a825";
+    if(c === "D") return "#ff8a50";
+    return "#ff5252";
+  }
+
+  function gradeClass(letter){
+    if(!letter) return "";
+    return "pa-grade-" + letter.charAt(0);
+  }
+
+  function renderGrade(pm, metrics){
+    var section = document.getElementById("pa-grade-section");
+    var g = pm.grade;
+    if(!g){ section.style.display = "none"; return; }
+
+    section.style.display = "block";
+    var ring = document.getElementById("pa-grade-circle");
+    ring.className = "pa-grade-ring " + gradeClass(g.overall);
+    document.getElementById("pa-grade-letter").textContent = g.overall;
+    document.getElementById("pa-grade-score").textContent = g.score + " / 100";
+
+    // Quick stats
+    document.getElementById("pa-stat-holdings").textContent = pm.n_holdings || "--";
+    document.getElementById("pa-stat-effn").textContent = pm.effective_n || "--";
+    document.getElementById("pa-stat-mdd").textContent = pm.max_drawdown !== null && pm.max_drawdown !== undefined
+      ? (pm.max_drawdown * 100).toFixed(1) + "%" : "--";
+    document.getElementById("pa-stat-mdd").style.color = pm.max_drawdown !== null && pm.max_drawdown < -0.25 ? "#ff5252" : "#00e89a";
+    document.getElementById("pa-stat-topwt").textContent = pm.top_weight !== undefined ? pm.top_weight + "%" : "--";
+
+    var totalAnnual = (metrics || []).reduce(function(sum, m){ return sum + (m.annual_income || 0); }, 0);
+    var fmt = function(v){ return "$" + v.toLocaleString("en-US", {minimumFractionDigits:0, maximumFractionDigits:0}); };
+    document.getElementById("pa-stat-annual-income").textContent  = totalAnnual > 0 ? fmt(totalAnnual) : "--";
+    document.getElementById("pa-stat-monthly-income").textContent = totalAnnual > 0 ? fmt(totalAnnual / 12) : "--";
+
+    // Breakdown bars
+    var bd = g.breakdown || [];
+    var html = "";
+    bd.forEach(function(row){
+      var barW = Math.max(0, Math.min(100, row.score));
+      var color = gradeColor(row.grade);
+      html += '<div class="pa-breakdown-row">' +
+        '<div class="pa-breakdown-label">' + row.category + '</div>' +
+        '<div class="pa-breakdown-bar-bg"><div class="pa-breakdown-bar" style="width:'+barW+'%;background:'+color+'"></div></div>' +
+        '<div class="pa-breakdown-grade" style="color:'+color+'">'+row.grade+'</div>' +
+        '<div class="pa-breakdown-weight">'+row.weight+'%</div>' +
+        '</div>';
+    });
+    document.getElementById("pa-grade-breakdown").innerHTML = html;
+  }
+
+  function colorMetric(val, type){
+    if(val === null || val === undefined) return '<span style="color:#555">N/A</span>';
+    var cls = "";
+    if(type === "sharpe" || type === "sortino"){
+      cls = val >= 1.0 ? "pa-good" : (val >= 0.5 ? "pa-mid" : "pa-bad");
+    } else if(type === "calmar"){
+      cls = val >= 1.0 ? "pa-good" : (val >= 0.5 ? "pa-mid" : "pa-bad");
+    } else if(type === "omega"){
+      cls = val >= 1.5 ? "pa-good" : (val >= 1.0 ? "pa-mid" : "pa-bad");
+    } else if(type === "up_capture"){
+      cls = (val >= 60 && val <= 100) ? "pa-good" : "pa-mid";
+    } else if(type === "down_capture"){
+      cls = val < 90 ? "pa-good" : (val < 110 ? "pa-mid" : "pa-bad");
+    }
+    return '<span class="'+cls+'">'+val+'</span>';
+  }
+
+  function fmtVal(v){ return v === null || v === undefined ? "N/A" : v; }
+
+  function renderMetrics(data){
+    metricsData = data.metrics || [];
+    var body = document.getElementById("pa-metrics-body");
+    var rows = metricsData.slice();
+
+    if(sortCol){
+      rows.sort(function(a,b){
+        var av = a[sortCol], bv = b[sortCol];
+        if(av === null || av === undefined) return 1;
+        if(bv === null || bv === undefined) return -1;
+        if(sortCol === "ticker") return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+        return sortAsc ? av - bv : bv - av;
+      });
+    }
+
+    var html = "";
+    // Portfolio row
+    var pm = data.portfolio_metrics || {};
+    if(pm.sharpe !== undefined){
+      html += '<tr class="pa-portfolio-row"><td>Portfolio (weighted)</td><td>100.00</td>';
+      html += '<td>'+colorMetric(pm.sharpe,"sharpe")+'</td>';
+      html += '<td>'+colorMetric(pm.sortino,"sortino")+'</td>';
+      html += '<td>'+colorMetric(pm.calmar,"calmar")+'</td>';
+      html += '<td>'+colorMetric(pm.omega,"omega")+'</td>';
+      html += '<td>'+colorMetric(pm.up_capture,"up_capture")+'</td>';
+      html += '<td>'+colorMetric(pm.down_capture,"down_capture")+'</td></tr>';
+    }
+
+    rows.forEach(function(r){
+      html += '<tr><td>'+r.ticker+'</td><td>'+fmtVal(r.weight)+'</td>';
+      html += '<td>'+colorMetric(r.sharpe,"sharpe")+'</td>';
+      html += '<td>'+colorMetric(r.sortino,"sortino")+'</td>';
+      html += '<td>'+colorMetric(r.calmar,"calmar")+'</td>';
+      html += '<td>'+colorMetric(r.omega,"omega")+'</td>';
+      html += '<td>'+colorMetric(r.up_capture,"up_capture")+'</td>';
+      html += '<td>'+colorMetric(r.down_capture,"down_capture")+'</td></tr>';
+    });
+    body.innerHTML = html;
+
+    // Render grade
+    renderGrade(data.portfolio_metrics || {}, data.metrics || []);
+  }
+
+  // Table sorting
+  document.querySelectorAll("#pa-metrics-table th").forEach(function(th){
+    th.addEventListener("click", function(){
+      var col = this.getAttribute("data-col");
+      if(sortCol === col){ sortAsc = !sortAsc; }
+      else { sortCol = col; sortAsc = true; }
+      document.querySelectorAll("#pa-metrics-table th").forEach(function(h){
+        h.classList.remove("pa-sort-asc","pa-sort-desc");
+      });
+      this.classList.add(sortAsc ? "pa-sort-asc" : "pa-sort-desc");
+      renderMetrics({metrics: metricsData, portfolio_metrics: window._lastPortMetrics || {}});
+    });
+  });
+
+  window.updateBalanceLabel = function(){
+    var v = parseFloat(document.getElementById("pa-balance").value);
+    var inc = Math.round(v * 100);
+    var saf = 100 - inc;
+    document.getElementById("pa-balance-val").textContent = saf + "% Safety / " + inc + "% Income";
+  };
+
+  window.loadMetrics = function(){
+    if(!tickerList.length){ alert("Add at least one ticker."); return; }
+    var bench = document.getElementById("pa-bench").value.trim().toUpperCase() || "SPY";
+    document.getElementById("pa-spinner").style.display = "flex";
+    document.getElementById("pa-grade-section").style.display = "none";
+    document.getElementById("pa-metrics-section").style.display = "none";
+    document.getElementById("pa-charts-section").style.display = "none";
+    document.getElementById("pa-opt-section").style.display = "none";
+    document.getElementById("pa-error").style.display = "none";
+    document.getElementById("pa-spinner-msg").textContent = "Fetching data & calculating metrics\u2026";
+
+    var url = "/portfolio_analytics/data?tickers="+tickerList.join(",")+"&benchmark="+bench+"&period="+activePeriod+"&mode=metrics";
+    fetch(url).then(function(r){ return r.json(); }).then(function(data){
+      document.getElementById("pa-spinner").style.display = "none";
+      if(data.error){ document.getElementById("pa-error").textContent = data.error; document.getElementById("pa-error").style.display = "block"; return; }
+      window._lastPortMetrics = data.portfolio_metrics;
+      window._lastAnalyticsData = data;
+      renderMetrics(data);
+      renderCharts(data);
+      document.getElementById("pa-metrics-section").style.display = "block";
+      document.getElementById("pa-opt-section").style.display = "block";
+    }).catch(function(err){
+      document.getElementById("pa-spinner").style.display = "none";
+      document.getElementById("pa-error").textContent = "Error: "+err;
+      document.getElementById("pa-error").style.display = "block";
+    });
+  };
+
+  function renderCharts(data){
+    var metrics = data.metrics || [];
+    if(!metrics.length){ document.getElementById("pa-charts-section").style.display = "none"; return; }
+    document.getElementById("pa-charts-section").style.display = "block";
+
+    // ── Risk vs Return scatter (bubble = weight) ──
+    var scatterEl = document.getElementById("pa-scatter-chart");
+    Plotly.purge(scatterEl);
+    var xVol = metrics.map(function(m){ return m.annual_vol !== undefined ? m.annual_vol : null; });
+    var yRet = metrics.map(function(m){ return m.annual_ret !== undefined ? m.annual_ret : null; });
+    var sizes = metrics.map(function(m){ return Math.max(7, Math.min(42, (m.weight||1) * 2.8)); });
+    var colors = yRet.map(function(v){ return v === null ? "#555" : (v >= 0 ? "#00e89a" : "#ff5252"); });
+    var texts = metrics.map(function(m){
+      return m.ticker+"<br>Return: "+(m.annual_ret!==null?m.annual_ret+"%":"N/A")+
+             "<br>Vol: "+(m.annual_vol!==null?m.annual_vol+"%":"N/A")+
+             "<br>Weight: "+m.weight+"%<br>Sharpe: "+(m.sharpe!==null?m.sharpe:"N/A");
+    });
+    Plotly.newPlot(scatterEl, [{
+      x: xVol.tolist ? xVol.tolist() : xVol,
+      y: yRet.tolist ? yRet.tolist() : yRet,
+      text: metrics.map(function(m){ return m.ticker; }),
+      customdata: texts,
+      hovertemplate: "%{customdata}<extra></extra>",
+      mode: "markers+text", textposition: "top center",
+      textfont: {color:"#aaa", size:9},
+      marker: {color:colors, size:sizes, line:{color:"#333",width:1}, opacity:0.85}
+    }], {
+      title: {text:"Risk vs Return  (bubble size = portfolio weight)", font:{color:"#ddd",size:13}},
+      xaxis: {title:"Annualized Volatility (%)", color:"#888", gridcolor:"#1a1a2e", zeroline:false},
+      yaxis: {title:"Annualized Return (%)", color:"#888", gridcolor:"#1a1a2e", zeroline:true, zerolinecolor:"#444"},
+      paper_bgcolor:"#0a0a1a", plot_bgcolor:"#0a0a1a",
+      margin:{t:45,r:20,b:55,l:60}
+    }, {responsive:true});
+
+    // ── Correlation heatmap ──
+    var corrEl = document.getElementById("pa-corr-chart");
+    Plotly.purge(corrEl);
+    if(data.correlation && data.correlation.labels.length > 1){
+      var labels = data.correlation.labels;
+      var matrix = data.correlation.matrix;
+      var flatText = [];
+      for(var i=0;i<labels.length;i++){
+        var row=[];
+        for(var j=0;j<labels.length;j++) row.push(labels[i]+" / "+labels[j]+": "+matrix[i][j].toFixed(2));
+        flatText.push(row);
+      }
+      Plotly.newPlot(corrEl, [{
+        type:"heatmap", x:labels, y:labels, z:matrix,
+        colorscale:[[0,"#d32f2f"],[0.5,"#111124"],[1,"#00e89a"]],
+        zmin:-1, zmax:1,
+        text:flatText, hovertemplate:"%{text}<extra></extra>",
+        showscale:true, colorbar:{tickfont:{color:"#888"},len:0.8}
+      }], {
+        title:{text:"Pairwise Correlation Matrix", font:{color:"#ddd",size:13}},
+        xaxis:{color:"#888", tickangle:-45, tickfont:{size:9}},
+        yaxis:{color:"#888", tickfont:{size:9}, autorange:"reversed"},
+        paper_bgcolor:"#0a0a1a", plot_bgcolor:"#0a0a1a",
+        margin:{t:45,r:60,b:90,l:90}
+      }, {responsive:true});
+    } else {
+      corrEl.innerHTML = '<p style="color:#555;text-align:center;padding:3rem;font-size:0.85rem">Need 2+ tickers with data for correlation matrix.</p>';
+    }
+
+    // ── Portfolio Drawdown ──
+    var ddEl = document.getElementById("pa-drawdown-chart");
+    Plotly.purge(ddEl);
+    if(data.drawdown_series && data.drawdown_series.dates.length){
+      var dd = data.drawdown_series;
+      Plotly.newPlot(ddEl, [{
+        x:dd.dates, y:dd.values, fill:"tozeroy",
+        fillcolor:"rgba(255,82,82,0.15)", line:{color:"#ff5252",width:1.5},
+        mode:"lines", name:"Drawdown",
+        hovertemplate:"%{x}: %{y:.2f}%<extra></extra>"
+      }], {
+        title:{text:"Portfolio Drawdown (weighted)", font:{color:"#ddd",size:13}},
+        xaxis:{color:"#888", gridcolor:"#1a1a2e"},
+        yaxis:{color:"#888", gridcolor:"#1a1a2e", tickformat:".1f", ticksuffix:"%"},
+        paper_bgcolor:"#0a0a1a", plot_bgcolor:"#0a0a1a",
+        margin:{t:45,r:20,b:40,l:60},
+        shapes:[{type:"line", x0:dd.dates[0], x1:dd.dates[dd.dates.length-1],
+                 y0:0, y1:0, line:{color:"#444",width:1}}]
+      }, {responsive:true});
+    }
+  }
+
+  window.runOptimize = function(mode){
+    activeOptMode = mode;
+    document.querySelectorAll(".pa-opt-btn").forEach(function(b){ b.classList.remove("pa-opt-active"); });
+    document.getElementById("pa-income-controls").style.display = "none";
+    document.getElementById("pa-balanced-controls").style.display = "none";
+    if(mode === "optimize_returns"){
+      document.getElementById("pa-opt-returns-btn").classList.add("pa-opt-active");
+    } else if(mode === "optimize_income"){
+      document.getElementById("pa-opt-income-btn").classList.add("pa-opt-active");
+      document.getElementById("pa-income-controls").style.display = "block";
+    } else {
+      document.getElementById("pa-opt-balanced-btn").classList.add("pa-opt-active");
+      document.getElementById("pa-balanced-controls").style.display = "block";
+      updateBalanceLabel();
+    }
+
+    if(!tickerList.length) return;
+    var bench = document.getElementById("pa-bench").value.trim().toUpperCase() || "SPY";
+    var minSharpe = document.getElementById("pa-min-sharpe").value;
+    var maxDd = (parseFloat(document.getElementById("pa-max-dd").value)/100).toFixed(2);
+    var balance = document.getElementById("pa-balance").value;
+
+    document.getElementById("pa-opt-results").style.display = "none";
+    document.getElementById("pa-spinner").style.display = "flex";
+    document.getElementById("pa-spinner-msg").textContent = "Running optimization\u2026";
+    document.getElementById("pa-error").style.display = "none";
+
+    var url = "/portfolio_analytics/data?tickers="+tickerList.join(",")+"&benchmark="+bench+
+              "&period="+activePeriod+"&mode="+mode+"&min_sharpe="+minSharpe+"&max_dd="+maxDd+
+              "&balance="+balance;
+
+    fetch(url).then(function(r){ return r.json(); }).then(function(data){
+      document.getElementById("pa-spinner").style.display = "none";
+      if(data.error){ document.getElementById("pa-error").textContent = data.error; document.getElementById("pa-error").style.display = "block"; return; }
+      if(!data.optimization){ document.getElementById("pa-error").textContent = "Optimization returned no results (need at least 2 tickers with data)."; document.getElementById("pa-error").style.display = "block"; return; }
+      renderOptimization(data.optimization, mode);
+      document.getElementById("pa-opt-results").style.display = "block";
+    }).catch(function(err){
+      document.getElementById("pa-spinner").style.display = "none";
+      document.getElementById("pa-error").textContent = "Error: "+err;
+      document.getElementById("pa-error").style.display = "block";
+    });
+  };
+
+  function renderOptimization(opt, mode){
+    var summaryEl = document.getElementById("pa-opt-summary");
+    var theadEl = document.getElementById("pa-opt-thead");
+    var bodyEl = document.getElementById("pa-opt-body");
+    var s = opt.summary || {};
+
+    // Summary cards
+    if(mode === "optimize_returns"){
+      summaryEl.innerHTML =
+        card(s.sharpe, "Optimal Sharpe", "#7ecfff") +
+        card(s.expected_return !== undefined ? s.expected_return+"%" : "N/A", "Exp. Return (ann.)", "#00e89a") +
+        card(s.expected_vol !== undefined ? s.expected_vol+"%" : "N/A", "Exp. Volatility", "#f9a825");
+    } else if(mode === "optimize_income"){
+      summaryEl.innerHTML =
+        card(s.opt_yield !== undefined ? s.opt_yield+"%" : "N/A", "Optimal Yield", "#00e89a") +
+        card(s.curr_yield !== undefined ? s.curr_yield+"%" : "N/A", "Current Yield", "#7ecfff") +
+        card(s.opt_income !== undefined ? "$"+s.opt_income.toLocaleString() : "N/A", "Opt. Annual Income", "#00e89a") +
+        card(s.curr_income !== undefined ? "$"+s.curr_income.toLocaleString() : "N/A", "Curr. Annual Income", "#7ecfff") +
+        card(s.sharpe, "Opt. Sharpe", "#f9a825") +
+        card(s.max_dd !== undefined ? s.max_dd+"%" : "N/A", "Opt. Max DD", "#ff5252");
+    } else {
+      var balLbl = s.balance !== undefined ? s.balance+"% Income / "+(100-s.balance)+"% Safety" : "50/50";
+      summaryEl.innerHTML =
+        card(balLbl, "Balance", "#aaa") +
+        card(s.opt_yield !== undefined ? s.opt_yield+"%" : "N/A", "Optimal Yield", "#00e89a") +
+        card(s.curr_yield !== undefined ? s.curr_yield+"%" : "N/A", "Current Yield", "#7ecfff") +
+        card(s.opt_income !== undefined ? "$"+s.opt_income.toLocaleString() : "N/A", "Opt. Annual Income", "#00e89a") +
+        card(s.opt_sharpe !== undefined ? s.opt_sharpe : "N/A", "Opt. Sharpe", "#f9a825") +
+        card(s.curr_sharpe !== undefined ? s.curr_sharpe : "N/A", "Curr. Sharpe", "#7ecfff") +
+        card(s.max_dd !== undefined ? s.max_dd+"%" : "N/A", "Opt. Max DD", "#ff5252");
+    }
+
+    // Weights table
+    var w = opt.weights || [];
+    if(mode === "optimize_returns"){
+      theadEl.innerHTML = '<th>Ticker</th><th>Current %</th><th>Optimal %</th><th>Change</th>';
+    } else {
+      theadEl.innerHTML = '<th>Ticker</th><th>Current %</th><th>Optimal %</th><th>Yield %</th><th>Change</th>';
+    }
+    var isIncome = mode === "optimize_income" || mode === "optimize_balanced";
+    // Sort by optimal_pct descending
+    w.sort(function(a,b){ return b.optimal_pct - a.optimal_pct; });
+    var html = "";
+    w.forEach(function(r){
+      var change = (r.optimal_pct - r.current_pct).toFixed(2);
+      var changeColor = change > 0 ? "#00e89a" : (change < 0 ? "#ff5252" : "#888");
+      var changeStr = '<span style="color:'+changeColor+'">'+(change > 0 ? "+" : "")+change+'%</span>';
+      html += '<tr><td>'+r.ticker+'</td><td>'+r.current_pct+'%</td><td style="font-weight:600">'+r.optimal_pct+'%</td>';
+      if(isIncome) html += '<td>'+r.yield_pct+'%</td>';
+      html += '<td>'+changeStr+'</td></tr>';
+    });
+    bodyEl.innerHTML = html;
+
+    // Chart
+    var chartEl = document.getElementById("pa-opt-chart");
+    Plotly.purge(chartEl);
+
+    if(mode === "optimize_returns" && opt.frontier){
+      var fVol = opt.frontier.map(function(p){ return p.vol; });
+      var fRet = opt.frontier.map(function(p){ return p.ret; });
+      var traces = [{
+        x: fVol, y: fRet, mode: "lines", name: "Efficient Frontier",
+        line: {color: "#7ecfff", width: 2}
+      }];
+      if(opt.optimal_point){
+        traces.push({
+          x: [opt.optimal_point.vol], y: [opt.optimal_point.ret],
+          mode: "markers", name: "Optimal Portfolio",
+          marker: {color: "#00e89a", size: 14, symbol: "star"}
+        });
+      }
+      if(opt.current_point){
+        traces.push({
+          x: [opt.current_point.vol], y: [opt.current_point.ret],
+          mode: "markers", name: "Current Portfolio",
+          marker: {color: "#f9a825", size: 12, symbol: "diamond"}
+        });
+      }
+      Plotly.newPlot(chartEl, traces, {
+        title: {text: "Efficient Frontier", font: {color: "#ddd", size: 14}},
+        xaxis: {title: "Annualized Volatility (%)", color: "#888", gridcolor: "#222"},
+        yaxis: {title: "Annualized Return (%)", color: "#888", gridcolor: "#222"},
+        paper_bgcolor: "#0a0a1a", plot_bgcolor: "#0a0a1a",
+        legend: {font: {color: "#aaa"}, bgcolor: "rgba(0,0,0,0)"},
+        margin: {t: 40, r: 20, b: 50, l: 60}
+      }, {responsive: true});
+    } else if((mode === "optimize_income" || mode === "optimize_balanced") && opt.scatter){
+      var sc = opt.scatter;
+      var isBalanced = mode === "optimize_balanced";
+      var optPts = sc.filter(function(p){ return p.is_optimal; });
+      var otherPts = sc.filter(function(p){ return !p.is_optimal; });
+      var traces = [];
+      function scHover(p){
+        var s = p.ticker+"<br>Yield: "+p.yield_pct+"%<br>Vol: "+p.vol_pct+"%";
+        if(isBalanced && p.sharpe !== undefined) s += "<br>Sharpe: "+p.sharpe;
+        return s;
+      }
+      if(otherPts.length){
+        traces.push({
+          x: otherPts.map(function(p){ return p.vol_pct; }),
+          y: otherPts.map(function(p){ return p.yield_pct; }),
+          text: otherPts.map(function(p){ return p.ticker; }),
+          customdata: otherPts.map(scHover),
+          hovertemplate: "%{customdata}<extra></extra>",
+          mode: "markers+text", name: "Not in Optimal",
+          textposition: "top center", textfont: {color: "#888", size: 10},
+          marker: {color: "#555", size: isBalanced ? otherPts.map(function(p){ return Math.max(7, Math.min(20, (p.sharpe||0)*6)); }) : 8}
+        });
+      }
+      if(optPts.length){
+        traces.push({
+          x: optPts.map(function(p){ return p.vol_pct; }),
+          y: optPts.map(function(p){ return p.yield_pct; }),
+          text: optPts.map(function(p){ return p.ticker; }),
+          customdata: optPts.map(scHover),
+          hovertemplate: "%{customdata}<extra></extra>",
+          mode: "markers+text", name: "In Optimal Mix",
+          textposition: "top center", textfont: {color: "#00e89a", size: 11},
+          marker: {color: "#00e89a", size: isBalanced ? optPts.map(function(p){ return Math.max(9, Math.min(22, (p.sharpe||0)*6)); }) : 12,
+                   line: {color: "#fff", width: 1}}
+        });
+      }
+      var chartTitle = isBalanced ? "Yield vs Risk  (bubble size = Sharpe)" : "Yield vs Risk";
+      Plotly.newPlot(chartEl, traces, {
+        title: {text: chartTitle, font: {color: "#ddd", size: 14}},
+        xaxis: {title: "Annualized Volatility (%)", color: "#888", gridcolor: "#222"},
+        yaxis: {title: "Dividend Yield (%)", color: "#888", gridcolor: "#222"},
+        paper_bgcolor: "#0a0a1a", plot_bgcolor: "#0a0a1a",
+        legend: {font: {color: "#aaa"}, bgcolor: "rgba(0,0,0,0)"},
+        margin: {t: 40, r: 20, b: 50, l: 60}
+      }, {responsive: true});
+    }
+  }
+
+  function card(val, label, color){
+    return '<div class="pa-summary-card"><div class="pa-card-val" style="color:'+(color||"#ddd")+'">'+val+'</div><div class="pa-card-lbl">'+label+'</div></div>';
+  }
+
+  // Init: grey out already-added tickers in dropdown
+  renderChips();
+
+})();
+</script>
+
+{% endblock %}

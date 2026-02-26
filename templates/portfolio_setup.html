@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:900px;margin:0 auto;padding:20px 0">
+    <h1 style="color:#7ecfff;margin-bottom:6px">Portfolio Setup</h1>
+    <p style="color:#8899aa;margin-bottom:24px">
+        Loading portfolio for: <strong style="color:#a855f7">{{ active_profile_name }}</strong>
+        &mdash; <a href="{{ url_for('profiles_page') }}" style="color:#7ecfff">switch profile</a>
+    </p>
+
+    <!-- Tab bar -->
+    <div style="display:flex;gap:0;border-bottom:2px solid #2a2a4e;margin-bottom:24px">
+        <button onclick="showTab('upload')" id="tab-upload"
+                style="padding:10px 24px;background:none;border:none;color:#7ecfff;
+                       font-size:0.95rem;cursor:pointer;border-bottom:3px solid #7ecfff;margin-bottom:-2px;font-weight:700">
+            &#128196; Upload File
+        </button>
+        <button onclick="showTab('manual')" id="tab-manual"
+                style="padding:10px 24px;background:none;border:none;color:#8899aa;
+                       font-size:0.95rem;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px">
+            &#9998; Manual Entry
+        </button>
+    </div>
+
+    <!-- Upload tab -->
+    <div id="pane-upload">
+        <div style="background:#1a1f2e;border:1px solid #2a2a4e;border-radius:12px;padding:28px">
+            <h2 style="color:#c8d6e5;margin-top:0;font-size:1.1rem">Upload CSV or Excel File</h2>
+            <p style="color:#8899aa;margin-bottom:20px">
+                Your file needs at minimum a <strong>Ticker</strong> column and a <strong>Shares</strong> column.
+                Missing data (price, dividends, dates) is automatically fetched from Yahoo Finance.
+            </p>
+
+            <form method="post" action="{{ url_for('portfolio_upload') }}" enctype="multipart/form-data">
+                <div style="border:2px dashed #2a2a4e;border-radius:10px;padding:32px;text-align:center;margin-bottom:20px"
+                     id="drop-zone">
+                    <div style="font-size:2rem;margin-bottom:8px">&#128196;</div>
+                    <div style="color:#c8d6e5;font-size:1rem;margin-bottom:8px">Drop file here or click to browse</div>
+                    <div style="color:#8899aa;font-size:0.8rem;margin-bottom:16px">Accepts .csv and .xlsx</div>
+                    <input type="file" name="file" id="file-input" accept=".csv,.xlsx,.xls"
+                           style="display:none" onchange="updateFileLabel(this)">
+                    <label for="file-input" id="file-label"
+                           style="background:#7ecfff22;border:1px solid #7ecfff55;color:#7ecfff;
+                                  padding:8px 20px;border-radius:6px;cursor:pointer;font-size:0.9rem">
+                        Choose File
+                    </label>
+                </div>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+                    <a href="{{ url_for('portfolio_template') }}"
+                       style="color:#8899aa;font-size:0.85rem;text-decoration:none">
+                        &#8595; Download Template CSV
+                    </a>
+                    <button type="submit"
+                            style="background:#7ecfff;border:none;color:#0f1219;padding:10px 28px;
+                                   border-radius:8px;cursor:pointer;font-weight:700;font-size:0.95rem">
+                        Upload &amp; Enrich
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div style="background:#1a1f2e;border:1px solid #2a2a4e;border-radius:10px;padding:20px;margin-top:20px">
+            <h3 style="color:#c8d6e5;margin-top:0;font-size:0.95rem">Accepted Column Names</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div>
+                    <div style="color:#7ecfff;font-size:0.8rem;font-weight:700;margin-bottom:6px">Required</div>
+                    <div style="color:#8899aa;font-size:0.8rem;line-height:1.8">
+                        Ticker, Symbol, Stock<br>
+                        Shares, Quantity, Qty
+                    </div>
+                </div>
+                <div>
+                    <div style="color:#a855f7;font-size:0.8rem;font-weight:700;margin-bottom:6px">Optional (auto-fetched if missing)</div>
+                    <div style="color:#8899aa;font-size:0.8rem;line-height:1.8">
+                        Price Paid, Cost Basis<br>
+                        Div/Share, Dividend<br>
+                        Frequency, Div Frequency<br>
+                        Ex-Div Date<br>
+                        DRIP, Reinvest
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual entry tab -->
+    <div id="pane-manual" style="display:none">
+        <div style="background:#1a1f2e;border:1px solid #2a2a4e;border-radius:12px;padding:28px">
+            <h2 style="color:#c8d6e5;margin-top:0;font-size:1.1rem">Enter Holdings Manually</h2>
+            <p style="color:#8899aa;margin-bottom:20px">
+                Add each position below. Dividend data and current prices will be fetched from Yahoo Finance on save.
+            </p>
+
+            <table id="manual-table" style="width:100%;border-collapse:collapse;margin-bottom:16px">
+                <thead>
+                    <tr style="border-bottom:1px solid #2a2a4e">
+                        <th style="color:#8899aa;font-size:0.8rem;text-align:left;padding:8px 6px;width:18%">Ticker</th>
+                        <th style="color:#8899aa;font-size:0.8rem;text-align:left;padding:8px 6px;width:16%">Shares</th>
+                        <th style="color:#8899aa;font-size:0.8rem;text-align:left;padding:8px 6px;width:18%">Price Paid</th>
+                        <th style="color:#8899aa;font-size:0.8rem;text-align:left;padding:8px 6px;width:12%">DRIP?</th>
+                        <th style="width:36px"></th>
+                    </tr>
+                </thead>
+                <tbody id="manual-body">
+                    <!-- rows added by JS -->
+                </tbody>
+            </table>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+                <button onclick="addRow()"
+                        style="background:none;border:1px solid #2a2a4e;color:#8899aa;padding:7px 16px;
+                               border-radius:6px;cursor:pointer;font-size:0.85rem">
+                    &#43; Add Row
+                </button>
+                <div style="display:flex;gap:10px">
+                    <span id="save-msg" style="color:#8899aa;font-size:0.85rem;display:none"></span>
+                    <button onclick="saveManual()"
+                            style="background:#a855f7;border:none;color:#fff;padding:10px 28px;
+                                   border-radius:8px;cursor:pointer;font-weight:700;font-size:0.95rem">
+                        Save &amp; Enrich
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function showTab(name) {
+    document.getElementById('pane-upload').style.display = name === 'upload' ? '' : 'none';
+    document.getElementById('pane-manual').style.display = name === 'manual' ? '' : 'none';
+    document.getElementById('tab-upload').style.cssText = name === 'upload'
+        ? 'padding:10px 24px;background:none;border:none;color:#7ecfff;font-size:0.95rem;cursor:pointer;border-bottom:3px solid #7ecfff;margin-bottom:-2px;font-weight:700'
+        : 'padding:10px 24px;background:none;border:none;color:#8899aa;font-size:0.95rem;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px';
+    document.getElementById('tab-manual').style.cssText = name === 'manual'
+        ? 'padding:10px 24px;background:none;border:none;color:#a855f7;font-size:0.95rem;cursor:pointer;border-bottom:3px solid #a855f7;margin-bottom:-2px;font-weight:700'
+        : 'padding:10px 24px;background:none;border:none;color:#8899aa;font-size:0.95rem;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px';
+}
+
+function updateFileLabel(input) {
+    var label = document.getElementById('file-label');
+    label.textContent = input.files[0] ? input.files[0].name : 'Choose File';
+}
+
+var rowCount = 0;
+
+function addRow(ticker, shares, price, drip) {
+    rowCount++;
+    var tbody = document.getElementById('manual-body');
+    var tr = document.createElement('tr');
+    tr.id = 'row-' + rowCount;
+    tr.style.borderBottom = '1px solid #1e2433';
+    var inp = function(val, ph, w) {
+        return '<td style="padding:5px 4px;width:' + w + '"><input type="text" value="' + (val||'') + '" placeholder="' + ph + '" ' +
+               'style="background:#0f1219;border:1px solid #2a2a4e;color:#e8eaf6;padding:6px 8px;' +
+               'border-radius:5px;font-size:0.85rem;width:100%;box-sizing:border-box"></td>';
+    };
+    tr.innerHTML =
+        inp(ticker, 'JEPI', '18%') +
+        inp(shares, '100', '16%') +
+        inp(price, 'optional', '18%') +
+        '<td style="padding:5px 4px;width:12%"><select style="background:#0f1219;border:1px solid #2a2a4e;color:#e8eaf6;padding:6px;border-radius:5px;font-size:0.85rem">' +
+            '<option value="N"' + (drip==='Y'?'':' selected') + '>No</option>' +
+            '<option value="Y"' + (drip==='Y'?' selected':'') + '>Yes</option>' +
+        '</select></td>' +
+        '<td style="padding:5px 4px;text-align:center">' +
+            '<button onclick="removeRow(' + rowCount + ')" style="background:none;border:none;color:#ff6b6b;cursor:pointer;font-size:1rem;padding:4px">&#10005;</button>' +
+        '</td>';
+    tbody.appendChild(tr);
+}
+
+function removeRow(id) {
+    var el = document.getElementById('row-' + id);
+    if (el) el.remove();
+}
+
+function saveManual() {
+    var rows = document.querySelectorAll('#manual-body tr');
+    var data = [];
+    rows.forEach(function(tr) {
+        var inputs = tr.querySelectorAll('input');
+        var sel = tr.querySelector('select');
+        var ticker = inputs[0] ? inputs[0].value.trim().toUpperCase() : '';
+        var shares = inputs[1] ? parseFloat(inputs[1].value) : NaN;
+        if (!ticker || isNaN(shares) || shares <= 0) return;
+        var obj = {ticker: ticker, shares: shares, reinvest: sel ? sel.value : 'N'};
+        var pp = inputs[2] ? inputs[2].value.trim() : '';
+        if (pp) obj.price_paid = parseFloat(pp);
+        data.push(obj);
+    });
+
+    if (!data.length) {
+        alert('Please add at least one valid row (Ticker + Shares required).');
+        return;
+    }
+
+    var msg = document.getElementById('save-msg');
+    msg.textContent = 'Saving and enriching via Yahoo Finance…';
+    msg.style.display = '';
+
+    fetch('{{ url_for("portfolio_manual_save") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+        if (res.success) {
+            window.location.href = '{{ url_for("index") }}';
+        } else {
+            msg.textContent = 'Error: ' + (res.error || 'Unknown error');
+            msg.style.color = '#ff6b6b';
+        }
+    })
+    .catch(function(e) {
+        msg.textContent = 'Request failed: ' + e.message;
+        msg.style.color = '#ff6b6b';
+    });
+}
+
+// Pre-populate with existing holdings, or add a blank starter row
+var existing = {{ existing_holdings | tojson }};
+if (existing.length) {
+    existing.forEach(function(h) {
+        addRow(h.ticker, h.quantity, h.price_paid || '', h.reinvest || 'N');
+    });
+} else {
+    addRow();
+}
+</script>
+{% endblock %}

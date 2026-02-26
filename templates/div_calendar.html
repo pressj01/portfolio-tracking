@@ -54,7 +54,20 @@
     </div>
 </div>
 {% else %}
+{% if active_profile_id == 1 %}
 <p>No ex-dividend date data found. Import data from Excel first.</p>
+{% else %}
+<p style="color:#8899aa">
+    No dividend date data yet for <strong style="color:#a855f7">{{ active_profile_name }}</strong>.
+    <form action="{{ url_for('portfolio_refresh') }}" method="post" style="display:inline">
+        <button type="submit"
+                style="background:#a855f7;border:none;color:#fff;padding:6px 16px;
+                       border-radius:6px;cursor:pointer;font-weight:600;font-size:0.9rem;margin-left:8px">
+            &#8635; Refresh Data
+        </button>
+    </form>
+</p>
+{% endif %}
 {% endfor %}
 </div>
 
@@ -230,6 +243,12 @@
     });
 
     // ── Filter (uses pay date) ────────────────────────────────────────────
+    var emptyMsg = document.createElement("p");
+    emptyMsg.id = "dc-empty-msg";
+    emptyMsg.style.cssText = "color:#8899aa;padding:1rem 0;display:none";
+    emptyMsg.textContent = "No events match this filter.";
+    grid.parentNode.insertBefore(emptyMsg, grid.nextSibling);
+
     function applyFilter(filter) {
         activeFilter = filter;
         var past30start = addDays(today, -30);
@@ -247,6 +266,11 @@
         });
         document.getElementById("dc-count").textContent =
             visible + " holding" + (visible !== 1 ? "s" : "");
+        emptyMsg.style.display = (visible === 0 && cards.length > 0) ? "" : "none";
+        if (visible === 0 && cards.length > 0) {
+            var labels = {"past30": "past 30 days", "next30": "next 30 days", "upcoming": "upcoming"};
+            emptyMsg.textContent = "No events in the " + (labels[filter] || filter) + ".";
+        }
     }
 
     document.querySelectorAll(".dc-filter-btn").forEach(function(btn) {

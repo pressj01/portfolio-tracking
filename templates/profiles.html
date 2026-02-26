@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:800px;margin:0 auto;padding:20px 0">
+    <h1 style="color:#7ecfff;margin-bottom:24px">&#128100; Manage Profiles</h1>
+    <p style="color:#8899aa;margin-bottom:28px">
+        Each profile is an independent portfolio. Switch between profiles using the nav bar.
+        The <strong>Owner</strong> profile uses Excel import and cannot be deleted.
+    </p>
+
+    <!-- Profile cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-bottom:32px">
+        {% for p in profiles %}
+        <div style="background:#1a1f2e;border:1px solid {{ '#7ecfff44' if p.id == active_profile_id else '#2a2a4e' }};
+                    border-radius:12px;padding:20px;position:relative">
+            {% if p.id == active_profile_id %}
+            <span style="position:absolute;top:12px;right:12px;background:#7ecfff22;color:#7ecfff;
+                         font-size:0.7rem;padding:2px 8px;border-radius:10px;font-weight:700">ACTIVE</span>
+            {% endif %}
+            <div style="font-size:1.15rem;font-weight:700;color:#e8eaf6;margin-bottom:4px">{{ p.name }}</div>
+            {% if p.created_at %}
+            <div style="color:#8899aa;font-size:0.8rem;margin-bottom:14px">Created {{ p.created_at.strftime('%b %d, %Y') if p.created_at else '' }}</div>
+            {% endif %}
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                {% if p.id != active_profile_id %}
+                <form method="post" action="{{ url_for('profiles_switch', pid=p.id) }}" style="margin:0">
+                    <button type="submit" style="background:#7ecfff22;border:1px solid #7ecfff55;color:#7ecfff;
+                            padding:5px 12px;border-radius:6px;cursor:pointer;font-size:0.8rem">Switch To</button>
+                </form>
+                {% endif %}
+                <a href="{{ url_for('portfolio_setup') }}"
+                   onclick="{% if p.id != active_profile_id %}event.preventDefault();alert('Switch to this profile first before setting up its portfolio.');{% endif %}"
+                   style="background:#a855f722;border:1px solid #a855f755;color:#a855f7;
+                          padding:5px 12px;border-radius:6px;cursor:pointer;font-size:0.8rem;text-decoration:none">
+                    Upload / Edit
+                </a>
+                {% if p.id != 1 %}
+                <form method="post" action="{{ url_for('profiles_delete', pid=p.id) }}"
+                      onsubmit="return confirm('Delete profile {{ p.name }} and all its data? This cannot be undone.')"
+                      style="margin:0">
+                    <button type="submit" style="background:#ff6b6b22;border:1px solid #ff6b6b55;color:#ff6b6b;
+                            padding:5px 12px;border-radius:6px;cursor:pointer;font-size:0.8rem">Delete</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <!-- Add new profile card -->
+        <div style="background:#1a1f2e;border:2px dashed #2a2a4e;border-radius:12px;padding:20px;
+                    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px">
+            <div style="color:#8899aa;font-size:0.9rem">New Profile</div>
+            <form method="post" action="{{ url_for('profiles_create') }}"
+                  style="display:flex;flex-direction:column;gap:8px;width:100%">
+                <input type="text" name="name" placeholder="Profile name…" required
+                       style="background:#0f1219;border:1px solid #2a2a4e;color:#e8eaf6;
+                              padding:8px 12px;border-radius:6px;font-size:0.9rem;width:100%;box-sizing:border-box">
+                <button type="submit"
+                        style="background:#a855f7;border:none;color:#fff;padding:8px 12px;
+                               border-radius:6px;cursor:pointer;font-weight:600;font-size:0.9rem">
+                    &#43; Create Profile
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div style="background:#1a1f2e;border:1px solid #2a2a4e;border-radius:10px;padding:20px">
+        <h3 style="color:#c8d6e5;margin-top:0">How it works</h3>
+        <ul style="color:#8899aa;line-height:1.7;margin:0">
+            <li>Each profile stores its own set of holdings, payouts, and history.</li>
+            <li>The <strong style="color:#7ecfff">Owner</strong> profile imports data from the Excel file via the Dashboard import button.</li>
+            <li>Other profiles use the <strong style="color:#a855f7">Upload / Edit</strong> page to load a CSV or enter holdings manually.</li>
+            <li>All charts, calendar, and analysis pages automatically show data for the active profile.</li>
+            <li>Deleting a profile permanently removes all its data from the database.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

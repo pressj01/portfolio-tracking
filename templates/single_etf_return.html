@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Single ETF — Return Comparison</h1>
-<p class="note">Enable any combination of the three ticker slots, pick a return type and period, then click <strong>Update Chart</strong>.</p>
+<p class="note">Pick a primary ticker from your portfolio (always charted in blue), then add any number of comparison tickers. All selected tickers appear together on the chart.</p>
 
 <!-- ── Ticker slots ───────────────────────────────────────── -->
 <div class="ticker-slots">
@@ -9,8 +9,7 @@
     <!-- t1 — Portfolio -->
     <div class="ticker-slot slot-t1" id="slot-t1">
         <div class="slot-header">
-            <span class="slot-label t1-label">Portfolio</span>
-            <button class="slot-toggle enabled" id="toggle-t1" data-slot="t1">● Include</button>
+            <span class="slot-label t1-label">Primary Ticker (blue line)</span>
         </div>
         <select id="ticker-select" class="ctrl-select">
             <option value="">— select from portfolio —</option>
@@ -23,33 +22,18 @@
         </select>
     </div>
 
-    <!-- t2 — Custom -->
-    <div class="ticker-slot slot-t2 slot-disabled" id="slot-t2">
+    <!-- Compare Tickers — unlimited -->
+    <div class="ticker-slot slot-compare" id="slot-compare">
         <div class="slot-header">
-            <span class="slot-label t2-label">Custom Ticker</span>
-            <button class="slot-toggle disabled" id="toggle-t2" data-slot="t2">○ Excluded</button>
+            <span class="slot-label compare-label">Compare Against (overlaid on chart)</span>
         </div>
-        <input type="text" id="ticker-custom" class="ctrl-input" list="custom-datalist"
-               placeholder="any symbol — e.g. SCHD, NVDA…"
-               autocomplete="off" spellcheck="false" maxlength="12"
-               style="text-transform: uppercase">
-        <datalist id="custom-datalist">
-            {% for _, row in portfolio.iterrows() %}
-            <option value="{{ row.ticker }}">{{ row.description[:35] if row.description else '' }}</option>
-            {% endfor %}
-        </datalist>
-    </div>
-
-    <!-- t3 — Compare To -->
-    <div class="ticker-slot slot-t3 slot-disabled" id="slot-t3">
-        <div class="slot-header">
-            <span class="slot-label t3-label">Compare To</span>
-            <button class="slot-toggle disabled" id="toggle-t3" data-slot="t3">○ Excluded</button>
+        <div class="compare-add-row">
+            <input type="text" id="compare-input" class="ctrl-input" list="compare-datalist"
+                   placeholder="Add ticker — e.g. SPY, QQQ, SCHD…"
+                   autocomplete="off" spellcheck="false" maxlength="12"
+                   style="text-transform: uppercase">
+            <button id="add-ticker-btn" class="btn add-btn">Add</button>
         </div>
-        <input type="text" id="compare-input" class="ctrl-input" list="compare-datalist"
-               placeholder="SPY, QQQ, SCHD…"
-               autocomplete="off" spellcheck="false" maxlength="12"
-               style="text-transform: uppercase">
         <datalist id="compare-datalist">
             <option value="SPY">SPY — S&amp;P 500</option>
             <option value="QQQ">QQQ — Nasdaq 100</option>
@@ -63,6 +47,7 @@
             <option value="{{ row.ticker }}">{{ row.description[:35] if row.description else '' }}</option>
             {% endfor %}
         </datalist>
+        <div class="chip-container" id="ticker-chips"></div>
     </div>
 
 </div><!-- /.ticker-slots -->
@@ -74,9 +59,24 @@
     <div class="control-group">
         <label class="ctrl-label">Return Type</label>
         <div class="period-btns" id="mode-btns">
-            <button class="pbtn pbtn-active" data-mode="total">Total Return</button>
+            <button class="pbtn pbtn-active" data-mode="total">Return</button>
             <button class="pbtn" data-mode="price">Price Only</button>
-            <button class="pbtn pbtn-compare" data-mode="both">Total &amp; Price</button>
+            <button class="pbtn pbtn-compare" data-mode="both">Return &amp; Price</button>
+            <button class="pbtn pbtn-all3" data-mode="all3">All Three</button>
+        </div>
+        <div class="mode-desc" id="mode-desc"></div>
+    </div>
+
+    <!-- Reinvest slider -->
+    <div class="control-group" id="reinvest-group">
+        <label class="ctrl-label">
+            Reinvest %: <span id="reinvest-label" style="color:#7ecfff;font-weight:700">100%</span>
+        </label>
+        <div style="display:flex;align-items:center;gap:0.6rem">
+            <input id="reinvest-slider" type="range" min="0" max="100" value="100" step="1"
+                   style="flex:1;accent-color:#7ecfff;min-width:100px">
+            <input id="reinvest-num" type="number" min="0" max="100" value="100" step="1"
+                   class="ctrl-input" style="width:62px;text-align:center;flex:none">
         </div>
     </div>
 
@@ -130,7 +130,7 @@
 {% if portfolio is not none and portfolio|length > 0 %}
 <div class="quick-pick-section">
     <h3>Quick Pick — All Holdings</h3>
-    <p class="note">Click any row to load that ticker's chart.</p>
+    <p class="note">Click a row to set as primary ticker. <strong>Ctrl+Click</strong> (or Cmd+Click) to add as comparison.</p>
     <div class="table-wrapper" style="max-height:70vh;overflow-y:auto;">
     <table id="pick-table">
         <thead>
@@ -179,9 +179,7 @@
     transition: opacity .2s;
 }
 .slot-t1 { border-top-color:#7ecfff; }
-.slot-t2 { border-top-color:#a0f0c0; }
-.slot-t3 { border-top-color:#FFD700; }
-.slot-disabled { opacity:.4; }
+.slot-compare { border-top-color:#a0f0c0; flex:2 1 340px; }
 
 .slot-header {
     display:flex; justify-content:space-between; align-items:center;
@@ -191,16 +189,34 @@
     font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; font-weight:600;
 }
 .t1-label { color:#7ecfff; }
-.t2-label { color:#a0f0c0; }
-.t3-label { color:#FFD700; }
+.compare-label { color:#a0f0c0; }
 
-.slot-toggle {
-    font-size:.72rem; border-radius:3px; padding:.15rem .5rem; cursor:pointer;
-    border:1px solid; transition:all .15s;
+/* Compare add row */
+.compare-add-row {
+    display:flex; gap:.4rem; align-items:center;
 }
-.slot-toggle.enabled  { background:#0d2030; color:#7ecfff; border-color:#2a6aaa; }
-.slot-toggle.disabled { background:#0d1520; color:#556; border-color:#2a3a4a; }
-.slot-toggle:hover    { filter:brightness(1.25); }
+.compare-add-row .ctrl-input { flex:1; }
+.add-btn {
+    padding:.4rem .8rem; font-size:.85rem; white-space:nowrap;
+    background:#1a3a2a; color:#a0f0c0; border:1px solid #2a5a3a;
+    border-radius:5px; cursor:pointer; transition:background .15s;
+}
+.add-btn:hover { background:#2a4a3a; }
+
+/* Chip container */
+.chip-container {
+    display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.5rem; min-height:0;
+}
+.ticker-chip {
+    display:inline-flex; align-items:center; gap:.3rem;
+    padding:.2rem .55rem; border-radius:12px; font-size:.82rem;
+    font-weight:600; border:1px solid; cursor:default;
+}
+.chip-remove {
+    cursor:pointer; font-size:.9rem; line-height:1; opacity:.7;
+    transition:opacity .15s;
+}
+.chip-remove:hover { opacity:1; }
 
 /* ── Bottom controls bar ──────────────────────────────────── */
 .controls-bar-bottom {
@@ -235,8 +251,19 @@
 .pbtn-compare { color:#ffcc66; border-color:#5a4a1a; }
 .pbtn-compare:hover { background:#2a2010; color:#ffe0a0; }
 .pbtn-compare.pbtn-active { background:#3a2d00; color:#ffe08a; border-color:#aa8a00; }
+.pbtn-income { color:#ff9f43; border-color:#5a3a1a; }
+.pbtn-income:hover { background:#2a1a08; color:#ffb870; }
+.pbtn-income.pbtn-active { background:#3a2200; color:#ffb060; border-color:#aa6600; }
+.pbtn-all3 { color:#e091ff; border-color:#4a2a6a; }
+.pbtn-all3:hover { background:#2a1030; color:#eab0ff; }
+.pbtn-all3.pbtn-active { background:#3a1060; color:#eab0ff; border-color:#7a40aa; }
 .pbtn-divider { color:#334; padding:0 .2rem; line-height:1; align-self:center; font-size:1.1rem; }
+.mode-desc {
+    font-size:.76rem; color:#8899aa; margin-top:.35rem; line-height:1.35;
+    max-width:340px; min-height:1.6em;
+}
 .control-group-wide { flex:1 1 auto; }
+#reinvest-group.dimmed { opacity:.35; pointer-events:none; }
 .load-btn { align-self:flex-end; padding:.45rem 1.2rem; font-size:.95rem; }
 
 /* Loading */
@@ -257,6 +284,7 @@
 .stat-card.pos-card  { border-color:#2a5a3a; }
 .stat-card.neg-card  { border-color:#5a2a2a; }
 .stat-card.db-card   { border-color:#555; border-style:dashed; }
+.stat-card.note-card { border-color:#555; border-style:dashed; min-width:auto; }
 .stat-label { font-size:.72rem; color:#8899aa; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.25rem; }
 .stat-value { font-size:1.2rem; font-weight:bold; color:#7ecfff; }
 .stat-sub   { font-size:.75rem; color:#8899aa; margin-top:.15rem; }
@@ -284,37 +312,110 @@ td.num { text-align:right; }
 <!-- ── JavaScript ─────────────────────────────────────────── -->
 <script>
 (function () {
-    var activePeriod = '1y';
-    var activeMode   = 'total';
+    var activePeriod  = '1y';
+    var activeMode    = 'total';
+    var activeReinvest = 100;
 
-    var tickerSelect = document.getElementById('ticker-select');
-    var tickerCustom = document.getElementById('ticker-custom');
-    var compareInput = document.getElementById('compare-input');
+    var tickerSelect  = document.getElementById('ticker-select');
+    var compareInput  = document.getElementById('compare-input');
+    var addBtn        = document.getElementById('add-ticker-btn');
+    var chipsEl       = document.getElementById('ticker-chips');
+    var modeDescEl    = document.getElementById('mode-desc');
 
-    // ── Per-slot enable state ────────────────────────────────
-    // t1 starts enabled (portfolio), t2 starts disabled (empty custom), t3 starts enabled (SPY)
-    var slotEnabled = { t1: true, t2: false, t3: false };
+    // ── Reinvest slider sync ──────────────────────────────────
+    var riSlider = document.getElementById('reinvest-slider');
+    var riNum    = document.getElementById('reinvest-num');
+    var riLabel  = document.getElementById('reinvest-label');
+    var riGroup  = document.getElementById('reinvest-group');
 
-    function setSlotEnabled(slot, on) {
-        slotEnabled[slot] = on;
-        var btn  = document.getElementById('toggle-' + slot);
-        var wrap = document.getElementById('slot-' + slot);
-        if (on) {
-            btn.textContent = '● Include';
-            btn.className   = 'slot-toggle enabled';
-            wrap.classList.remove('slot-disabled');
+    function syncReinvest(v) {
+        var clamped = Math.max(0, Math.min(100, parseInt(v, 10) || 0));
+        riSlider.value = clamped;
+        riNum.value    = clamped;
+        riLabel.textContent = clamped + '%';
+        activeReinvest = clamped;
+    }
+    riSlider.addEventListener('input',  function() { syncReinvest(riSlider.value); });
+    riNum.addEventListener('input',     function() { syncReinvest(riNum.value); });
+    riNum.addEventListener('change',    function() { syncReinvest(riNum.value); });
+    riSlider.addEventListener('change', function() { loadChart(); });
+    riNum.addEventListener('change',    function() { loadChart(); });
+
+    function updateReinvestDim() {
+        if (activeMode === 'price') {
+            riGroup.classList.add('dimmed');
         } else {
-            btn.textContent = '○ Excluded';
-            btn.className   = 'slot-toggle disabled';
-            wrap.classList.add('slot-disabled');
+            riGroup.classList.remove('dimmed');
         }
     }
 
-    // Toggle buttons
-    ['t1', 't2', 't3'].forEach(function(slot) {
-        document.getElementById('toggle-' + slot).addEventListener('click', function() {
-            setSlotEnabled(slot, !slotEnabled[slot]);
+    // ── Mode descriptions ─────────────────────────────────────
+    var MODE_DESCS = {
+        total:  'Slider blends between Price Only (0%) and full DRIP total return (100%). See how much dividends affect your return.',
+        price:  'Share price change only — all dividends are ignored completely.',
+        both:  'Overlays blended return (slider %) and Price Only on the same chart. The gap shows the dividend contribution.',
+        all3:  'Price Only (dotted), blended slider % (dashed), and 100% DRIP reference (solid). At 100% the middle line is skipped.',
+    };
+    function updateModeDesc() {
+        modeDescEl.textContent = MODE_DESCS[activeMode] || '';
+        updateReinvestDim();
+    }
+    updateModeDesc();
+
+    // ── Color palette for comparison tickers ──────────────────
+    var CHIP_COLORS = ['#a0f0c0', '#FFD700', '#ff7eb3', '#b39ddb', '#ff8a65', '#4dd0e1', '#aed581', '#f48fb1'];
+    var extraTickers = [];  // [{sym, color}]
+
+    function addExtraTicker(sym) {
+        sym = sym.trim().toUpperCase();
+        if (!sym) return;
+        // Dedup: skip if already in extras or is t1
+        if (extraTickers.some(function(t){ return t.sym === sym; })) return;
+        if (tickerSelect && tickerSelect.value.trim().toUpperCase() === sym) return;
+        var colorIdx = extraTickers.length % CHIP_COLORS.length;
+        extraTickers.push({sym: sym, color: CHIP_COLORS[colorIdx]});
+        renderChips();
+    }
+
+    function removeExtraTicker(sym) {
+        extraTickers = extraTickers.filter(function(t){ return t.sym !== sym; });
+        // Reassign colors sequentially
+        extraTickers.forEach(function(t, i){ t.color = CHIP_COLORS[i % CHIP_COLORS.length]; });
+        renderChips();
+    }
+
+    function renderChips() {
+        var html = '';
+        extraTickers.forEach(function(t) {
+            html += '<span class="ticker-chip" style="background:' + t.color + '20; border-color:' + t.color + '; color:' + t.color + ';">'
+                  + t.sym
+                  + ' <span class="chip-remove" data-sym="' + t.sym + '">&times;</span>'
+                  + '</span>';
         });
+        chipsEl.innerHTML = html;
+        // Attach remove listeners
+        chipsEl.querySelectorAll('.chip-remove').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                removeExtraTicker(this.getAttribute('data-sym'));
+                loadChart();
+            });
+        });
+    }
+
+    // Add button + Enter key
+    addBtn.addEventListener('click', function() {
+        addExtraTicker(compareInput.value);
+        compareInput.value = '';
+        loadChart();
+    });
+    compareInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addExtraTicker(this.value);
+            this.value = '';
+            loadChart();
+        }
     });
 
     // Period button toggle
@@ -333,6 +434,7 @@ td.num { text-align:right; }
             document.querySelectorAll('#mode-btns .pbtn').forEach(function(b){ b.classList.remove('pbtn-active'); });
             this.classList.add('pbtn-active');
             activeMode = this.getAttribute('data-mode');
+            updateModeDesc();
             loadChart();
         });
     });
@@ -340,61 +442,35 @@ td.num { text-align:right; }
     // Update Chart button
     document.getElementById('load-btn').addEventListener('click', loadChart);
 
-    // Portfolio dropdown — auto-enable t1 when a ticker is selected
+    // Portfolio dropdown — auto-load on change
     if (tickerSelect) {
         tickerSelect.addEventListener('change', function() {
-            if (this.value) setSlotEnabled('t1', true);
             loadChart();
         });
     }
 
-    // Custom ticker — auto-enable t2 when typed, auto-disable when cleared; Enter to load
-    if (tickerCustom) {
-        tickerCustom.addEventListener('input', function() {
-            var hasVal = this.value.trim().length > 0;
-            setSlotEnabled('t2', hasVal);
-        });
-        tickerCustom.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { e.preventDefault(); loadChart(); }
-        });
-    }
-
-    // Compare input — auto-enable t3 when typed, auto-disable when cleared; Enter to load
-    if (compareInput) {
-        compareInput.addEventListener('input', function() {
-            setSlotEnabled('t3', this.value.trim().length > 0);
-        });
-        compareInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { e.preventDefault(); loadChart(); }
-        });
-    }
-
-    // Quick-pick row click — fills t1 dropdown, enables t1
+    // Quick-pick row — click sets t1, Ctrl/Cmd+click adds as comparison
     document.querySelectorAll('.pick-row').forEach(function(row) {
-        row.addEventListener('click', function() {
+        row.addEventListener('click', function(e) {
             var tkr = this.getAttribute('data-ticker');
-            if (tickerSelect) tickerSelect.value = tkr;
-            setSlotEnabled('t1', true);
-            document.querySelectorAll('.pick-row').forEach(function(r){ r.classList.remove('active-row'); });
-            this.classList.add('active-row');
+            if (e.ctrlKey || e.metaKey) {
+                // Add as comparison ticker
+                addExtraTicker(tkr);
+            } else {
+                // Set as primary ticker
+                if (tickerSelect) tickerSelect.value = tkr;
+                document.querySelectorAll('.pick-row').forEach(function(r){ r.classList.remove('active-row'); });
+                this.classList.add('active-row');
+            }
             loadChart();
         });
     });
 
-    // ── Build t1/t2/t3 values ────────────────────────────────
-    function getSlotValues() {
-        return {
-            t1: (slotEnabled.t1 && tickerSelect ? tickerSelect.value.trim() : ''),
-            t2: (slotEnabled.t2 && tickerCustom ? tickerCustom.value.trim().toUpperCase() : ''),
-            t3: (slotEnabled.t3 && compareInput ? compareInput.value.trim().toUpperCase() : ''),
-        };
-    }
-
     function loadChart() {
-        var sv = getSlotValues();
-        var activeCount = [sv.t1, sv.t2, sv.t3].filter(function(v){ return v; }).length;
-        if (activeCount === 0) {
-            showError('Please enable at least one ticker slot with a value.');
+        var t1 = tickerSelect ? tickerSelect.value.trim() : '';
+        var extraStr = extraTickers.map(function(t){ return t.sym; }).join(',');
+        if (!t1 && !extraStr) {
+            showError('Please select at least one ticker.');
             return;
         }
 
@@ -402,12 +478,12 @@ td.num { text-align:right; }
         clearError();
 
         var url = '/single_etf_return/data'
-                + '?t1='     + encodeURIComponent(sv.t1)
-                + '&t2='     + encodeURIComponent(sv.t2)
-                + '&t3='     + encodeURIComponent(sv.t3)
-                + '&period=' + encodeURIComponent(activePeriod)
-                + '&mode='   + encodeURIComponent(activeMode)
-                + '&_='      + Date.now();
+                + '?t1='       + encodeURIComponent(t1)
+                + '&extra='    + encodeURIComponent(extraStr)
+                + '&period='   + encodeURIComponent(activePeriod)
+                + '&mode='     + encodeURIComponent(activeMode)
+                + '&reinvest=' + activeReinvest
+                + '&_='        + Date.now();
 
         fetch(url, {cache: 'no-store'})
             .then(function(r) { return r.json(); })
@@ -431,7 +507,7 @@ td.num { text-align:right; }
         Plotly.newPlot(el, figData.data, figData.layout, {responsive: true});
     }
 
-    // ── Stats cards — new multi-ticker format ────────────────
+    // ── Stats cards — multi-ticker format ────────────────────
     function renderStats(s) {
         if (!s || !s.tickers) return;
         var area = document.getElementById('stats-area');
@@ -449,19 +525,31 @@ td.num { text-align:right; }
         var html = '';
         html += card('Period', s.period || '—', '', 'highlight');
 
+        var ri = s.reinvest_pct !== undefined ? s.reinvest_pct : 100;
+
         // Per-ticker block
         s.tickers.forEach(function(t) {
             var isDb  = t.note && t.note.indexOf('DB') >= 0;
             var extra = isDb ? 'db-card' : retClass(t.ret);
 
-            html += card(t.label + ' Return',
-                         fmt(t.ret, '%'),
-                         isDb ? 'DB snapshot' : (s.mode === 'price' ? 'price only' : 'total'),
-                         extra);
+            var retSub;
+            if (isDb)                     retSub = 'DB snapshot';
+            else if (s.mode === 'price')  retSub = 'price only';
+            else if (s.mode === 'all3')   retSub = '100% DRIP (solid)';
+            else                          retSub = ri + '% reinvest';
+            html += card(t.label + ' Return', fmt(t.ret, '%'), retSub, extra);
 
-            if (t.price_ret !== null && t.price_ret !== undefined) {
-                html += card(t.label + ' Price',    fmt(t.price_ret,   '%'), 'no divs',    retClass(t.price_ret));
-                html += card(t.label + ' Div',      fmt(t.div_contrib, '%'), 'contribution',
+            // All Three mode — show all 3 return lines as cards
+            if (s.mode === 'all3') {
+                html += card(t.label + ' Price', fmt(t.price_ret, '%'), 'price only (dotted)', retClass(t.price_ret));
+                if (ri < 100 && t.custom_ret !== null && t.custom_ret !== undefined) {
+                    html += card(t.label + ' ' + ri + '% Reinvest', fmt(t.custom_ret, '%'), 'custom (dashed)', retClass(t.custom_ret));
+                }
+                html += card(t.label + ' DRIP Div', fmt(t.div_contrib, '%'), 'DRIP div portion',
+                             t.div_contrib !== null && parseFloat(t.div_contrib) >= 0 ? 'pos-card' : 'neg-card');
+            } else if (t.price_ret !== null && t.price_ret !== undefined) {
+                html += card(t.label + ' Price',    fmt(t.price_ret,   '%'), 'price only', retClass(t.price_ret));
+                html += card(t.label + ' Div',      fmt(t.div_contrib, '%'), 'div contribution',
                              t.div_contrib !== null && parseFloat(t.div_contrib) >= 0 ? 'pos-card' : 'neg-card');
             }
             if (t.ann !== null && t.ann !== undefined) {
@@ -482,6 +570,10 @@ td.num { text-align:right; }
                              'outperformance',
                              parseFloat(a.value) >= 0 ? 'pos-card' : 'neg-card');
             });
+        }
+        if (s.alpha_note) {
+            html += '<div class="stat-card note-card"><div class="stat-label">Note</div>'
+                  + '<div class="stat-value" style="font-size:.85rem;color:#8899aa;">' + s.alpha_note + '</div></div>';
         }
 
         document.getElementById('stats-grid').innerHTML = html;
@@ -542,7 +634,7 @@ td.num { text-align:right; }
         el.textContent = ''; el.style.display = 'none';
     }
 
-    // Auto-load on page open (t1 + t3 are enabled by default)
+    // Auto-load on page open
     loadChart();
 })();
 </script>

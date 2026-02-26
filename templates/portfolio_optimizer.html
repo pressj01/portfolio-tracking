@@ -1,0 +1,849 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 style="margin-bottom:0.3rem">Portfolio Swap Advisor</h1>
+<p style="color:#aaa;margin-top:0;margin-bottom:1.2rem;font-size:0.875rem">
+  Identify underperforming holdings and find replacements that preserve ≥95% of income while improving your portfolio grade.
+</p>
+
+<!-- ── Settings bar ── -->
+<div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-end;margin-bottom:1.2rem;
+            padding:0.8rem 1rem;background:#0d0d1f;border:1px solid #2a2a3e;border-radius:8px">
+  <div>
+    <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:2px">Benchmark</label>
+    <input id="po-bench" type="text" value="SPY"
+           style="width:80px;padding:0.3rem 0.5rem;background:#111124;border:1px solid #333;
+                  border-radius:4px;color:#ddd;font-size:0.85rem;text-transform:uppercase">
+  </div>
+  <div>
+    <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:2px">Period</label>
+    <div id="po-periods" style="display:flex;gap:3px">
+      {% for p, lbl in [("1mo","1M"),("3mo","3M"),("6mo","6M"),("ytd","YTD"),("1y","1Y"),("2y","2Y"),("5y","5Y"),("max","Max")] %}
+      <button data-period="{{ p }}"
+              class="po-period-btn{{ ' po-period-active' if p == '1y' else '' }}"
+              onclick="setPeriod('{{ p }}')"
+              style="padding:0.28rem 0.6rem;background:{{ '#7ecfff' if p == '1y' else '#1a1a3a' }};
+                     border:1px solid #444;border-radius:4px;
+                     color:{{ '#000' if p == '1y' else '#aaa' }};
+                     font-size:0.8rem;cursor:pointer">{{ lbl }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  <div>
+    <label style="font-size:0.78rem;color:#888;display:block;margin-bottom:2px">Income Floor</label>
+    <select id="po-floor"
+            style="padding:0.3rem 0.5rem;background:#111124;border:1px solid #333;
+                   border-radius:4px;color:#ddd;font-size:0.85rem">
+      <option value="0.70">70%</option>
+      <option value="0.75">75%</option>
+      <option value="0.80">80%</option>
+      <option value="0.85">85%</option>
+      <option value="0.90">90%</option>
+      <option value="0.95" selected>95%</option>
+      <option value="0.975">97.5%</option>
+      <option value="1.00">100%</option>
+    </select>
+  </div>
+  <button onclick="loadScores()" id="po-rescore-btn"
+          style="padding:0.4rem 1.0rem;background:#1a1a3a;border:1px solid #7ecfff;
+                 border-radius:5px;color:#7ecfff;font-size:0.85rem;cursor:pointer">
+    ↻ Re-score
+  </button>
+</div>
+
+<!-- ── Custom Portfolio Panel ── -->
+<div style="margin-bottom:1rem">
+  <details id="po-custom-port-details">
+    <summary style="cursor:pointer;font-size:0.82rem;color:#7ecfff;user-select:none">
+      ⚙ Test a hypothetical portfolio
+    </summary>
+    <div style="margin-top:0.6rem;padding:0.8rem;background:#0d0d1f;border:1px solid #2a2a3e;border-radius:6px">
+      <p style="font-size:0.78rem;color:#888;margin:0 0 0.5rem 0">
+        Click in the box below and type your holdings — this does <strong style="color:#bbb">not</strong> affect your real portfolio.<br>
+        Enter each holding as <code>TICKER:SHARES</code>, one per line or comma-separated.<br>
+        <span style="color:#555">Weights are calculated from current price × shares. Income pulled from your DB where the ticker matches.</span>
+      </p>
+      <textarea id="po-custom-port-input" rows="4"
+        placeholder="e.g.&#10;JEPI:500&#10;SCHD:200&#10;O:100"
+        style="width:100%;box-sizing:border-box;padding:0.4rem;background:#111124;
+               border:1px solid #555;border-radius:4px;color:#ddd;font-size:0.82rem;
+               resize:vertical;font-family:monospace;outline:none"
+        onfocus="this.style.border='1px solid #7ecfff';this.style.background='#13132a'"
+        onblur="this.style.border='1px solid #555';this.style.background='#111124'"></textarea>
+      <div style="margin-top:0.5rem;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
+        <button onclick="activateCustomPortfolio()"
+          style="padding:0.35rem 0.9rem;background:linear-gradient(135deg,#7ecfff,#4a90d9);
+                 border:none;border-radius:4px;color:#000;font-weight:600;font-size:0.82rem;cursor:pointer">
+          Use This Portfolio
+        </button>
+        <button onclick="loadMyDbPortfolio()"
+          style="padding:0.35rem 0.7rem;background:transparent;border:1px solid #7ecfff;
+                 border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer">
+          Load My Portfolio
+        </button>
+        <button onclick="resetToDbPortfolio()"
+          style="padding:0.35rem 0.7rem;background:transparent;border:1px solid #555;
+                 border-radius:4px;color:#888;font-size:0.82rem;cursor:pointer">
+          ✕ Clear / Use My DB Portfolio
+        </button>
+        <span id="po-custom-port-status" style="font-size:0.75rem;color:#666"></span>
+      </div>
+    </div>
+  </details>
+</div>
+
+<!-- ── Spinner ── -->
+<div id="po-spinner" style="display:none;flex-direction:column;align-items:center;padding:3rem 0;gap:1rem">
+  <div style="width:48px;height:48px;border:5px solid #2a2a3e;border-top-color:#7ecfff;
+              border-radius:50%;animation:po-spin 0.75s linear infinite"></div>
+  <p id="po-spinner-msg" style="color:#aaa;margin:0;font-size:0.9rem">Fetching data &amp; scoring holdings…</p>
+</div>
+<style>@keyframes po-spin { to { transform: rotate(360deg); } }</style>
+
+<!-- ── Error ── -->
+<div id="po-error" style="display:none" class="flash error"></div>
+
+<!-- ── Portfolio Grade section ── -->
+<div id="po-grade-section" style="display:none;margin-bottom:1.5rem">
+  <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-start;
+              padding:1rem 1.2rem;background:#0d0d1f;border:1px solid #2a2a3e;border-radius:8px">
+    <!-- Grade circle -->
+    <div id="po-grade-circle" class="pa-grade-ring">
+      <div class="pa-grade-letter" id="po-grade-letter">--</div>
+      <div class="pa-grade-score" id="po-grade-score">0 / 100</div>
+    </div>
+    <!-- Breakdown bars -->
+    <div style="flex:1;min-width:260px">
+      <h2 style="margin:0 0 0.5rem 0;font-size:1rem;color:#7ecfff">Portfolio Report Card</h2>
+      <div id="po-grade-breakdown"></div>
+    </div>
+    <!-- Quick stats -->
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;min-width:280px">
+      <div class="pa-summary-card" style="padding:0.35rem 0.75rem;min-width:90px">
+        <div class="pa-card-val" style="font-size:1rem" id="po-stat-holdings">--</div>
+        <div class="pa-card-lbl">Holdings</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.35rem 0.75rem;min-width:90px">
+        <div class="pa-card-val" style="font-size:1rem" id="po-stat-sharpe">--</div>
+        <div class="pa-card-lbl">Sharpe</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.35rem 0.75rem;min-width:90px">
+        <div class="pa-card-val" style="font-size:1rem" id="po-stat-sortino">--</div>
+        <div class="pa-card-lbl">Sortino</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.35rem 0.75rem;min-width:90px">
+        <div class="pa-card-val" style="font-size:1rem" id="po-stat-mdd">--</div>
+        <div class="pa-card-lbl">Max Drawdown</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.35rem 0.75rem;min-width:90px">
+        <div class="pa-card-val" style="font-size:1rem" id="po-stat-effn">--</div>
+        <div class="pa-card-lbl">Effective N</div>
+      </div>
+      <div class="pa-summary-card" style="padding:0.35rem 0.75rem;min-width:90px">
+        <div class="pa-card-val" style="font-size:1rem" id="po-stat-dcap">--</div>
+        <div class="pa-card-lbl">Down Capture</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Candidate Pool ── -->
+<div id="po-cand-section" style="display:none;margin-bottom:1.2rem;
+     padding:0.9rem 1rem;background:#0d0d1f;border:1px solid #2a2a3e;border-radius:8px">
+  <h2 style="margin:0 0 0.6rem 0;font-size:0.95rem;color:#7ecfff">Candidate Pool
+    <span style="font-size:0.75rem;color:#555;font-weight:400;margin-left:0.5rem">
+      Click to toggle — active candidates are included in swap analysis
+    </span>
+  </h2>
+  <div id="po-cand-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.75rem">
+    {% for c in candidates %}
+    <span class="po-cand-chip po-cand-active" data-ticker="{{ c }}"
+          onclick="toggleCand(this)"
+          style="padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;
+                 user-select:none;border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff">
+      {{ c }}
+      {% if c in portfolio_set %}
+      <span style="font-size:0.65rem;color:#888;margin-left:2px">(held)</span>
+      {% endif %}
+    </span>
+    {% endfor %}
+  </div>
+  <details style="margin-bottom:0.5rem">
+    <summary style="cursor:pointer;font-size:0.78rem;color:#7ecfff;user-select:none">
+      ＋ Load a list of tickers
+    </summary>
+    <div style="margin-top:0.5rem;display:flex;gap:6px;align-items:flex-start">
+      <textarea id="po-bulk-input" rows="3"
+        placeholder="JEPI, SCHD, O&#10;one per line or comma-separated"
+        style="flex:1;padding:0.4rem;background:#111124;border:1px solid #333;border-radius:4px;
+               color:#ddd;font-size:0.82rem;resize:vertical;font-family:inherit"></textarea>
+      <button onclick="loadBulkCandidates()"
+        style="padding:0.35rem 0.7rem;background:#1a1a3a;border:1px solid #7ecfff;
+               border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer;white-space:nowrap">
+        Load All
+      </button>
+    </div>
+  </details>
+  <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center">
+    <div style="display:flex;gap:4px">
+      <input id="po-cand-add" type="text" placeholder="Add ticker…"
+             style="width:100px;padding:0.3rem 0.5rem;background:#111124;border:1px solid #333;
+                    border-radius:4px;color:#ddd;font-size:0.85rem;text-transform:uppercase"
+             onkeydown="if(event.key==='Enter')addCandidate()">
+      <button onclick="addCandidate()"
+              style="padding:0.3rem 0.7rem;background:#1a1a3a;border:1px solid #7ecfff;
+                     border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer">Add</button>
+    </div>
+    <button onclick="selectAllCands(true)"
+            style="padding:0.25rem 0.6rem;background:transparent;border:1px solid #444;
+                   border-radius:4px;color:#888;font-size:0.78rem;cursor:pointer">All On</button>
+    <button onclick="selectAllCands(false)"
+            style="padding:0.25rem 0.6rem;background:transparent;border:1px solid #444;
+                   border-radius:4px;color:#888;font-size:0.78rem;cursor:pointer">All Off</button>
+    <span id="po-cand-count" style="font-size:0.78rem;color:#555"></span>
+  </div>
+</div>
+
+<!-- ── Main Two-Column Layout ── -->
+<div id="po-main" style="gap:1.5rem">
+  <!-- Left: Holdings list -->
+  <div style="flex:0 0 320px;min-width:280px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+      <h2 style="margin:0;font-size:0.95rem;color:#7ecfff">Holdings
+        <span style="font-size:0.75rem;color:#555;font-weight:400;margin-left:0.3rem">sorted ↑ score (worst first)</span>
+      </h2>
+      <button onclick="selectWorst(5)"
+              style="padding:0.22rem 0.55rem;background:transparent;border:1px solid #444;
+                     border-radius:4px;color:#aaa;font-size:0.75rem;cursor:pointer">
+        Select 5 worst
+      </button>
+    </div>
+    <div id="po-holdings-list"
+         style="border:1px solid #2a2a3e;border-radius:6px;overflow:hidden;
+                max-height:550px;overflow-y:auto;background:#0a0a1a"></div>
+    <div style="margin-top:0.75rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+      <button onclick="loadSwaps()" id="po-analyze-btn" disabled
+              style="padding:0.4rem 1.1rem;background:linear-gradient(135deg,#7ecfff 0%,#4a90d9 100%);
+                     border:none;border-radius:5px;color:#000;font-weight:600;font-size:0.88rem;
+                     cursor:pointer;opacity:0.4">
+        Analyze Selected ▶
+      </button>
+      <span id="po-selected-count" style="font-size:0.78rem;color:#666">0 selected</span>
+    </div>
+  </div>
+
+  <!-- Right: Swap suggestions -->
+  <div style="flex:1;min-width:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+      <h2 style="margin:0;font-size:0.95rem;color:#7ecfff">Swap Suggestions</h2>
+      <span id="po-base-grade-badge"
+            style="font-size:0.8rem;color:#aaa;display:none">
+        Current portfolio grade: <strong id="po-base-grade-text" style="color:#7ecfff"></strong>
+        (<span id="po-base-score-text"></span>/100)
+      </span>
+    </div>
+    <!-- Swap spinner -->
+    <div id="po-swap-spinner" style="display:none;padding:2rem;text-align:center">
+      <div style="width:36px;height:36px;border:4px solid #2a2a3e;border-top-color:#7ecfff;
+                  border-radius:50%;animation:po-spin 0.75s linear infinite;display:inline-block"></div>
+      <p style="color:#aaa;margin:0.5rem 0 0 0;font-size:0.85rem">Computing swap candidates…</p>
+    </div>
+    <div id="po-swap-error" style="display:none" class="flash error"></div>
+    <div id="po-swaps-list"></div>
+    <p id="po-swaps-empty" style="display:none;color:#555;font-size:0.85rem;padding:1rem 0">
+      Select one or more holdings from the left and click "Analyze Selected" to find swap candidates.
+    </p>
+  </div>
+</div>
+
+<style>
+  #po-main { display: none; }
+  #po-main.po-visible { display: flex; flex-wrap: wrap; }
+
+  .po-holding-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #1a1a2e;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .po-holding-row:last-child { border-bottom: none; }
+  .po-holding-row:hover { background: #111124; }
+  .po-holding-row.po-selected { background: #0d1a2a; }
+
+  .po-score-bar-wrap {
+    flex: 1;
+    height: 5px;
+    background: #1a1a2e;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .po-score-bar {
+    height: 100%;
+    border-radius: 3px;
+  }
+
+  .po-swap-card {
+    border: 1px solid #2a2a3e;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    background: #0d0d1f;
+  }
+  .po-swap-card-header {
+    padding: 0.6rem 0.9rem;
+    background: #111124;
+    border-bottom: 1px solid #2a2a3e;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  .po-swap-card-header:hover { background: #161628; }
+  .po-candidate-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid #1a1a2e;
+    flex-wrap: wrap;
+  }
+  .po-candidate-row:last-child { border-bottom: none; }
+  .po-candidate-row:hover { background: #111124; }
+
+  .po-grade-badge {
+    display: inline-block;
+    padding: 0.12rem 0.45rem;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+  .po-income-badge {
+    display: inline-block;
+    padding: 0.12rem 0.45rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .po-impr-positive { color: #00e89a; }
+  .po-impr-negative { color: #f66; }
+  .po-impr-neutral  { color: #aaa; }
+
+  .po-stat-mini {
+    font-size: 0.72rem;
+    color: #888;
+  }
+  .po-stat-mini strong { color: #bbb; }
+
+  /* Grade colors */
+  .po-grade-A  { background: #003d1a; color: #00e89a; }
+  .po-grade-B  { background: #0d2a00; color: #7acc2a; }
+  .po-grade-C  { background: #2a2200; color: #e8c400; }
+  .po-grade-D  { background: #2a1000; color: #e87a00; }
+  .po-grade-F  { background: #2a0000; color: #f44; }
+</style>
+
+<script>
+(function() {
+  var activePeriod = "1y";
+  var holdingsData = [];
+  var selectedTickers = new Set();
+  var customPortfolio = null;  // null = use DB; [{ticker, shares}, ...] = custom
+  var DB_HOLDINGS = {{ db_holdings | tojson }};  // injected from Flask
+
+  // ── Period selector ──────────────────────────────────────────────────
+  window.setPeriod = function(p) {
+    activePeriod = p;
+    document.querySelectorAll(".po-period-btn").forEach(function(btn) {
+      var active = btn.dataset.period === p;
+      btn.style.background = active ? "#7ecfff" : "#1a1a3a";
+      btn.style.color = active ? "#000" : "#aaa";
+    });
+  };
+
+  // ── Candidate chip toggle ────────────────────────────────────────────
+  window.toggleCand = function(el) {
+    var active = el.classList.toggle("po-cand-active");
+    el.style.background   = active ? "#1a1a3a" : "#0d0d1f";
+    el.style.color        = active ? "#7ecfff" : "#555";
+    el.style.borderColor  = active ? "#7ecfff" : "#333";
+    updateCandCount();
+  };
+
+  window.selectAllCands = function(on) {
+    document.querySelectorAll(".po-cand-chip").forEach(function(el) {
+      var currently = el.classList.contains("po-cand-active");
+      if (currently !== on) toggleCand(el);
+    });
+  };
+
+  function updateCandCount() {
+    var n = document.querySelectorAll(".po-cand-chip.po-cand-active").length;
+    var el = document.getElementById("po-cand-count");
+    if (el) el.textContent = n + " active";
+  }
+
+  window.addCandidate = function() {
+    var inp = document.getElementById("po-cand-add");
+    var t = inp.value.trim().toUpperCase();
+    if (!t) return;
+    // Prevent duplicates
+    if (document.querySelector('.po-cand-chip[data-ticker="' + t + '"]')) {
+      inp.value = "";
+      return;
+    }
+    var chip = document.createElement("span");
+    chip.className = "po-cand-chip po-cand-active";
+    chip.dataset.ticker = t;
+    chip.onclick = function() { toggleCand(this); };
+    chip.style.cssText = "padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;" +
+      "user-select:none;border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff;display:inline-block";
+    chip.textContent = t;
+    document.getElementById("po-cand-chips").appendChild(chip);
+    inp.value = "";
+    updateCandCount();
+  };
+
+  window.loadBulkCandidates = function() {
+    var raw = document.getElementById("po-bulk-input").value;
+    var tickers = raw.split(/[\s,;\n]+/).map(function(t){ return t.trim().toUpperCase(); })
+                     .filter(function(t){ return t.length > 0; });
+    tickers.forEach(function(t) {
+      if (!document.querySelector('.po-cand-chip[data-ticker="' + t + '"]')) {
+        var chip = document.createElement("span");
+        chip.className = "po-cand-chip po-cand-active";
+        chip.dataset.ticker = t;
+        chip.onclick = function() { toggleCand(this); };
+        chip.style.cssText = "padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;" +
+          "user-select:none;border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff;display:inline-block";
+        chip.textContent = t;
+        document.getElementById("po-cand-chips").appendChild(chip);
+      }
+    });
+    document.getElementById("po-bulk-input").value = "";
+    updateCandCount();
+  };
+
+  // ── Holdings selection ───────────────────────────────────────────────
+  window.toggleHolding = function(ticker) {
+    if (selectedTickers.has(ticker)) {
+      selectedTickers.delete(ticker);
+    } else {
+      selectedTickers.add(ticker);
+    }
+    var row = document.querySelector('.po-holding-row[data-ticker="' + ticker + '"]');
+    if (row) {
+      row.classList.toggle("po-selected", selectedTickers.has(ticker));
+      var cb = row.querySelector("input[type=checkbox]");
+      if (cb) cb.checked = selectedTickers.has(ticker);
+    }
+    updateAnalyzeBtn();
+  };
+
+  function updateAnalyzeBtn() {
+    var n = selectedTickers.size;
+    var btn = document.getElementById("po-analyze-btn");
+    var cnt = document.getElementById("po-selected-count");
+    if (btn) {
+      btn.disabled = n === 0;
+      btn.style.opacity = n === 0 ? "0.4" : "1";
+      btn.style.cursor  = n === 0 ? "default" : "pointer";
+    }
+    if (cnt) cnt.textContent = n + " selected";
+  }
+
+  window.selectWorst = function(n) {
+    selectedTickers.clear();
+    holdingsData.slice(0, n).forEach(function(h) { selectedTickers.add(h.ticker); });
+    // Update UI
+    document.querySelectorAll(".po-holding-row").forEach(function(row) {
+      var t = row.dataset.ticker;
+      row.classList.toggle("po-selected", selectedTickers.has(t));
+      var cb = row.querySelector("input[type=checkbox]");
+      if (cb) cb.checked = selectedTickers.has(t);
+    });
+    updateAnalyzeBtn();
+  };
+
+  // ── Custom portfolio functions ────────────────────────────────────────
+  window.loadMyDbPortfolio = function() {
+    var lines = DB_HOLDINGS.map(function(h){ return h.ticker + ":" + h.shares; }).join("\n");
+    document.getElementById("po-custom-port-input").value = lines;
+    document.getElementById("po-custom-port-status").textContent =
+      "Loaded " + DB_HOLDINGS.length + " holdings — click 'Use This Portfolio' to activate, or edit first.";
+  };
+
+  window.activateCustomPortfolio = function() {
+    var raw = document.getElementById("po-custom-port-input").value;
+    var entries = raw.split(/[\s,;\n]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+    var parsed = [];
+    var errors = [];
+    entries.forEach(function(e) {
+      var parts = e.split(":");
+      if (parts.length !== 2) { errors.push(e); return; }
+      var t = parts[0].trim().toUpperCase();
+      var s = parseFloat(parts[1].trim());
+      if (!t || isNaN(s) || s <= 0) { errors.push(e); return; }
+      parsed.push({ticker: t, shares: s});
+    });
+    if (!parsed.length) {
+      document.getElementById("po-custom-port-status").textContent = "No valid entries found.";
+      return;
+    }
+    customPortfolio = parsed;
+    var msg = "Using custom portfolio: " + parsed.map(function(p){ return p.ticker + "×" + p.shares; }).join(", ");
+    if (errors.length) msg += " (skipped: " + errors.join(", ") + ")";
+    document.getElementById("po-custom-port-status").textContent = msg;
+    loadScores();
+  };
+
+  window.resetToDbPortfolio = function() {
+    customPortfolio = null;
+    document.getElementById("po-custom-port-status").textContent = "Using database portfolio.";
+    document.getElementById("po-custom-port-input").value = "";
+    loadScores();
+  };
+
+  // ── Helpers ─────────────────────────────────────────────────────────
+  function gradeColor(grade) {
+    if (!grade || grade === "--") return "po-grade-C";
+    var first = grade.charAt(0);
+    var map = { A: "po-grade-A", B: "po-grade-B", C: "po-grade-C", D: "po-grade-D", F: "po-grade-F" };
+    return map[first] || "po-grade-C";
+  }
+
+  function scoreBarColor(score) {
+    if (score >= 80) return "#00e89a";
+    if (score >= 70) return "#7acc2a";
+    if (score >= 60) return "#e8c400";
+    if (score >= 50) return "#e87a00";
+    return "#f44";
+  }
+
+  function fmtOpt(v, decimals, suffix) {
+    if (v === null || v === undefined) return "<span style='color:#444'>—</span>";
+    return (typeof v === "number" ? v.toFixed(decimals) : v) + (suffix || "");
+  }
+
+  function fmtDollar(v) {
+    if (v === null || v === undefined) return "—";
+    return "$" + v.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }
+
+  function renderBreakdown(breakdown, containerId) {
+    var el = document.getElementById(containerId);
+    if (!el || !breakdown || !breakdown.length) return;
+    var html = breakdown.map(function(b) {
+      var color = scoreBarColor(b.score);
+      return '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem;font-size:0.8rem">' +
+        '<div style="width:130px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + b.category + '</div>' +
+        '<div style="flex:1;height:8px;background:#1a1a2e;border-radius:4px;overflow:hidden">' +
+          '<div style="height:100%;width:' + b.score + '%;background:' + color + ';border-radius:4px"></div>' +
+        '</div>' +
+        '<div style="width:36px;text-align:right;color:' + color + ';font-weight:600">' + b.score + '</div>' +
+        '<div style="width:26px;text-align:right;color:#666;font-size:0.72rem">' + b.weight + '%</div>' +
+      '</div>';
+    }).join("");
+    el.innerHTML = html;
+  }
+
+  // ── loadScores ───────────────────────────────────────────────────────
+  window.loadScores = function() {
+    var bench = document.getElementById("po-bench").value.trim().toUpperCase() || "SPY";
+    var url = "/portfolio_optimizer/data?mode=score&benchmark=" + encodeURIComponent(bench) +
+              "&period=" + encodeURIComponent(activePeriod);
+    if (customPortfolio) {
+      url += "&custom_portfolio=" + encodeURIComponent(
+        customPortfolio.map(function(p){ return p.ticker + ":" + p.shares; }).join(",")
+      );
+    }
+
+    document.getElementById("po-spinner").style.display = "flex";
+    document.getElementById("po-spinner-msg").textContent = "Fetching data & scoring holdings…";
+    document.getElementById("po-error").style.display = "none";
+    document.getElementById("po-grade-section").style.display = "none";
+    document.getElementById("po-cand-section").style.display = "none";
+    document.getElementById("po-main").classList.remove("po-visible");
+    document.getElementById("po-swaps-list").innerHTML = "";
+    document.getElementById("po-swaps-empty").style.display = "none";
+    document.getElementById("po-base-grade-badge").style.display = "none";
+
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById("po-spinner").style.display = "none";
+        if (data.error) {
+          document.getElementById("po-error").style.display = "block";
+          document.getElementById("po-error").textContent = data.error;
+          return;
+        }
+
+        holdingsData = data.holdings || [];
+        selectedTickers.clear();
+        updateAnalyzeBtn();
+
+        // Portfolio grade
+        var pg = data.portfolio_grade || {};
+        var ps = data.portfolio_stats || {};
+        if (pg.overall) {
+          document.getElementById("po-grade-letter").textContent = pg.overall;
+          document.getElementById("po-grade-letter").className = "pa-grade-letter " + gradeColor(pg.overall);
+          document.getElementById("po-grade-score").textContent = (pg.score || 0).toFixed(1) + " / 100";
+          document.getElementById("po-grade-circle").className = "pa-grade-ring " + gradeColor(pg.overall);
+          renderBreakdown(pg.breakdown || [], "po-grade-breakdown");
+          document.getElementById("po-grade-section").style.display = "block";
+        }
+
+        // Quick stats
+        document.getElementById("po-stat-holdings").textContent = ps.n_holdings || holdingsData.length;
+        document.getElementById("po-stat-sharpe").textContent   = ps.sharpe  !== null ? (ps.sharpe  || 0).toFixed(2) : "—";
+        document.getElementById("po-stat-sortino").textContent  = ps.sortino !== null ? (ps.sortino || 0).toFixed(2) : "—";
+        document.getElementById("po-stat-mdd").textContent      = ps.max_drawdown !== null ? (ps.max_drawdown || 0).toFixed(1) + "%" : "—";
+        document.getElementById("po-stat-effn").textContent     = ps.effective_n  !== null ? (ps.effective_n  || 0).toFixed(1) : "—";
+        document.getElementById("po-stat-dcap").textContent     = ps.down_capture !== null ? (ps.down_capture || 0).toFixed(1) + "%" : "—";
+
+        // Render holdings list
+        renderHoldings(holdingsData);
+        if (data.skipped_tickers && data.skipped_tickers.length) {
+          var skipEl = document.createElement("div");
+          skipEl.style.cssText = "padding:0.5rem 0.75rem;font-size:0.72rem;color:#555;border-top:1px solid #1a1a2e";
+          skipEl.innerHTML = "Skipped (no/insufficient data): " + data.skipped_tickers.map(function(t){
+            return '<span style="color:#444;margin-right:3px">' + t + '</span>';
+          }).join("");
+          document.getElementById("po-holdings-list").appendChild(skipEl);
+        }
+
+        document.getElementById("po-cand-section").style.display = "block";
+        document.getElementById("po-main").classList.add("po-visible");
+        document.getElementById("po-swaps-empty").style.display = "block";
+        updateCandCount();
+      })
+      .catch(function(err) {
+        document.getElementById("po-spinner").style.display = "none";
+        document.getElementById("po-error").style.display = "block";
+        document.getElementById("po-error").textContent = "Request failed: " + err;
+      });
+  };
+
+  function renderHoldings(holdings) {
+    var container = document.getElementById("po-holdings-list");
+    if (!holdings || !holdings.length) {
+      container.innerHTML = '<p style="color:#555;padding:1rem;font-size:0.85rem">No holdings data.</p>';
+      return;
+    }
+    var html = holdings.map(function(h) {
+      var color = scoreBarColor(h.score);
+      var gradeCls = gradeColor(h.grade);
+      return '<div class="po-holding-row' + (selectedTickers.has(h.ticker) ? ' po-selected' : '') + '" ' +
+             'data-ticker="' + h.ticker + '" onclick="toggleHolding(\'' + h.ticker + '\')">' +
+        '<input type="checkbox" ' + (selectedTickers.has(h.ticker) ? 'checked' : '') +
+               ' onclick="event.stopPropagation();toggleHolding(\'' + h.ticker + '\')"' +
+               ' style="cursor:pointer">' +
+        '<div style="width:52px;font-weight:600;font-size:0.85rem;color:#ddd">' + h.ticker + '</div>' +
+        '<span class="po-grade-badge ' + gradeCls + '" style="width:28px;text-align:center;font-size:0.75rem">' +
+          h.grade + '</span>' +
+        '<div class="po-score-bar-wrap">' +
+          '<div class="po-score-bar" style="width:' + h.score + '%;background:' + color + '"></div>' +
+        '</div>' +
+        '<div style="width:34px;text-align:right;font-size:0.78rem;color:' + color + '">' + h.score + '</div>' +
+        '<div style="width:40px;text-align:right;font-size:0.72rem;color:#666">' +
+          (h.weight !== null ? h.weight.toFixed(1) + "%" : "—") + '</div>' +
+      '</div>';
+    }).join("");
+    container.innerHTML = html;
+  }
+
+  // ── loadSwaps ────────────────────────────────────────────────────────
+  window.loadSwaps = function() {
+    if (selectedTickers.size === 0) return;
+
+    var weak = Array.from(selectedTickers).join(",");
+    var cands = Array.from(
+      document.querySelectorAll(".po-cand-chip.po-cand-active")
+    ).map(function(el) { return el.dataset.ticker; }).join(",");
+
+    if (!cands) {
+      document.getElementById("po-swap-error").style.display = "block";
+      document.getElementById("po-swap-error").textContent = "No candidates selected. Toggle some chips above.";
+      return;
+    }
+
+    var bench = document.getElementById("po-bench").value.trim().toUpperCase() || "SPY";
+    var floor = document.getElementById("po-floor").value;
+    var url = "/portfolio_optimizer/data?mode=swaps" +
+              "&weak=" + encodeURIComponent(weak) +
+              "&candidates=" + encodeURIComponent(cands) +
+              "&benchmark=" + encodeURIComponent(bench) +
+              "&period=" + encodeURIComponent(activePeriod) +
+              "&income_floor=" + encodeURIComponent(floor);
+    if (customPortfolio) {
+      url += "&custom_portfolio=" + encodeURIComponent(
+        customPortfolio.map(function(p){ return p.ticker + ":" + p.shares; }).join(",")
+      );
+    }
+
+    document.getElementById("po-swap-spinner").style.display = "block";
+    document.getElementById("po-swap-error").style.display = "none";
+    document.getElementById("po-swaps-list").innerHTML = "";
+    document.getElementById("po-swaps-empty").style.display = "none";
+    document.getElementById("po-base-grade-badge").style.display = "none";
+
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById("po-swap-spinner").style.display = "none";
+        if (data.error) {
+          document.getElementById("po-swap-error").style.display = "block";
+          document.getElementById("po-swap-error").textContent = data.error;
+          return;
+        }
+
+        // Show base grade
+        if (data.base_grade) {
+          document.getElementById("po-base-grade-badge").style.display = "block";
+          document.getElementById("po-base-grade-text").textContent = data.base_grade;
+          document.getElementById("po-base-score-text").textContent = (data.base_score || 0).toFixed(1);
+        }
+
+        if (data.portfolio_tickers_used && data.portfolio_tickers_used.length) {
+          var note = '<details style="margin-bottom:0.75rem;font-size:0.78rem;color:#555">' +
+            '<summary style="cursor:pointer;color:#666">Portfolio used in analysis (' +
+              data.portfolio_tickers_used.length + ' tickers)</summary>' +
+            '<div style="padding:0.4rem 0;display:flex;flex-wrap:wrap;gap:4px;margin-top:0.3rem">' +
+              data.portfolio_tickers_used.map(function(t){
+                return '<span style="padding:2px 7px;background:#111124;border:1px solid #2a2a3e;' +
+                       'border-radius:10px;font-size:0.75rem;color:#aaa">' + t + '</span>';
+              }).join("") +
+            '</div></details>';
+          document.getElementById("po-swaps-list").innerHTML = note;
+        }
+        renderSwaps(data.swaps || {}, data.base_score || 0, data.base_grade || "--");
+      })
+      .catch(function(err) {
+        document.getElementById("po-swap-spinner").style.display = "none";
+        document.getElementById("po-swap-error").style.display = "block";
+        document.getElementById("po-swap-error").textContent = "Request failed: " + err;
+      });
+  };
+
+  function renderSwaps(swaps, baseScore, baseGrade) {
+    var container = document.getElementById("po-swaps-list");
+    var keys = Object.keys(swaps);
+    if (!keys.length) {
+      document.getElementById("po-swaps-empty").style.display = "block";
+      document.getElementById("po-swaps-empty").textContent =
+        "No swap candidates met the income floor for selected tickers.";
+      return;
+    }
+
+    // Preserve the portfolio-used note if it was injected before this call
+    var existingNote = container.innerHTML;
+
+    var html = keys.map(function(ticker) {
+      var sw = swaps[ticker];
+      var income = fmtDollar(sw.current_income);
+      var gradeCls = gradeColor(sw.current_grade);
+
+      // Header
+      var headerHtml = '<div class="po-swap-card-header" onclick="toggleAccordion(this)">' +
+        '<span style="font-size:1.05rem;font-weight:700;color:#ddd">' + ticker + '</span>' +
+        '<span class="po-grade-badge ' + gradeCls + '">' + sw.current_grade + '</span>' +
+        '<span style="font-size:0.8rem;color:#888">' + (sw.current_score || 0).toFixed(1) + '/100</span>' +
+        '<span style="font-size:0.8rem;color:#aaa">' + income + '/yr</span>' +
+        '<span style="font-size:0.75rem;color:#555;margin-left:auto">Replace with ▾</span>' +
+      '</div>';
+
+      // Candidates
+      var candHtml = "";
+      if (!sw.candidates || !sw.candidates.length) {
+        candHtml = '<div style="padding:0.75rem;color:#555;font-size:0.82rem">' +
+          'No candidates met the income floor (' +
+          (parseFloat(document.getElementById("po-floor").value) * 100).toFixed(0) + '%).' +
+        '</div>';
+      } else {
+        candHtml = sw.candidates.map(function(c, idx) {
+          var improvement = c.improvement;
+          var imprStr, imprClass;
+          if (improvement > 0) {
+            imprStr = "+" + improvement.toFixed(1) + " pts";
+            imprClass = "po-impr-positive";
+          } else if (improvement < 0) {
+            imprStr = improvement.toFixed(1) + " pts";
+            imprClass = "po-impr-negative";
+          } else {
+            imprStr = "±0 pts";
+            imprClass = "po-impr-neutral";
+          }
+
+          var incRatio = c.income_ratio;
+          var incColor = incRatio >= 0.95 ? "#00e89a"
+                       : incRatio >= 0.85 ? "#e8c400"
+                       : incRatio >= 0.70 ? "#ff9800"
+                       : "#f66";
+          var incLabel = (incRatio * 100).toFixed(1) + "% income";
+
+          var newGradeCls = gradeColor(c.grade_after);
+          var oldGradeCls = gradeColor(sw.current_grade);
+
+          return '<div class="po-candidate-row">' +
+            '<div style="font-size:0.82rem;min-width:40px">' +
+              '<span style="font-size:0.7rem;color:#555">#' + (idx+1) + '</span>' +
+            '</div>' +
+            '<div style="min-width:55px">' +
+              '<span style="font-weight:700;font-size:0.95rem;color:#ddd">' + c.ticker + '</span>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:4px;min-width:120px">' +
+              '<span class="po-grade-badge ' + oldGradeCls + '" style="font-size:0.72rem">' +
+                sw.current_grade + '</span>' +
+              '<span style="color:#555;font-size:0.8rem">→</span>' +
+              '<span class="po-grade-badge ' + newGradeCls + '" style="font-size:0.72rem">' +
+                c.grade_after + '</span>' +
+            '</div>' +
+            '<div style="min-width:70px">' +
+              '<span class="' + imprClass + '" style="font-size:0.85rem;font-weight:600">' + imprStr + '</span>' +
+              '<div style="font-size:0.68rem;color:#555">portfolio score</div>' +
+            '</div>' +
+            '<div style="min-width:90px">' +
+              '<span class="po-income-badge" style="background:' + incColor + '22;color:' + incColor + '">' +
+                incLabel + '</span>' +
+              '<div style="font-size:0.68rem;color:#555">' + fmtDollar(c.new_income) + '/yr est.</div>' +
+            '</div>' +
+            '<div style="min-width:80px">' +
+              '<span style="font-size:0.75rem;color:#aaa">Yield: ' +
+                (c.yield_pct !== null ? c.yield_pct.toFixed(1) + "%" : "—") + ' est.</span>' +
+            '</div>' +
+            '<div class="po-stat-mini" style="min-width:100px">' +
+              '<strong>Sharpe</strong> ' + fmtOpt(c.sharpe, 2) +
+              '  <strong>Sortino</strong> ' + fmtOpt(c.sortino, 2) +
+            '</div>' +
+          '</div>';
+        }).join("");
+      }
+
+      return '<div class="po-swap-card">' + headerHtml +
+        '<div class="po-swap-body">' + candHtml + '</div>' +
+      '</div>';
+    }).join("");
+
+    container.innerHTML = existingNote + html;
+  }
+
+  window.toggleAccordion = function(header) {
+    var body = header.nextElementSibling;
+    var isOpen = body.style.display !== "none";
+    body.style.display = isOpen ? "none" : "block";
+    var arrow = header.querySelector("span:last-child");
+    if (arrow) arrow.textContent = isOpen ? "Replace with ▸" : "Replace with ▾";
+  };
+
+  // ── Auto-load on page ready ──────────────────────────────────────────
+  loadScores();
+  updateCandCount();
+})();
+</script>
+
+{% endblock %}
