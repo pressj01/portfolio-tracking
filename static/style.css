@@ -37,6 +37,57 @@ nav a.nav-active {
     color: #fff;
 }
 
+.nav-dropdown {
+    position: relative;
+}
+
+.nav-dropdown-label {
+    color: #e0e0e0;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+    user-select: none;
+}
+
+.nav-dropdown:hover .nav-dropdown-label {
+    background: #0f3460;
+}
+
+.nav-dropdown-active .nav-dropdown-label {
+    background: #e94560;
+    color: #fff;
+}
+
+.nav-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    min-width: 200px;
+    z-index: 1000;
+    padding: 0.25rem 0;
+    margin-top: 0.5rem;
+}
+
+.nav-dropdown:hover .nav-dropdown-menu {
+    display: block;
+}
+
+.nav-dropdown-menu a {
+    display: block;
+    padding: 0.5rem 1rem;
+    border-radius: 0;
+}
+
+.nav-dropdown-menu a:hover {
+    background: #0f3460;
+}
+
 .container {
     max-width: 1700px;
     margin: 0 auto;
