@@ -93,11 +93,15 @@
             <button class="pbtn" data-period="5y">5Y</button>
             <button class="pbtn" data-period="max">Max</button>
             <span class="pbtn-divider">|</span>
-            <button class="pbtn pbtn-year" data-period="2021">2021</button>
-            <button class="pbtn pbtn-year" data-period="2022">2022</button>
-            <button class="pbtn pbtn-year" data-period="2023">2023</button>
-            <button class="pbtn pbtn-year" data-period="2024">2024</button>
-            <button class="pbtn pbtn-year" data-period="2025">2025</button>
+            {% for yr in range(2021, current_year + 1) %}
+            <button class="pbtn pbtn-year" data-period="{{ yr }}">{{ yr }}</button>
+            {% endfor %}
+        </div>
+        <div class="date-range-row">
+            <input type="date" id="date-start" class="ctrl-input date-input" title="Start date">
+            <span class="date-sep">→</span>
+            <input type="date" id="date-end" class="ctrl-input date-input" title="End date">
+            <button id="apply-dates-btn" class="btn apply-btn">Apply</button>
         </div>
     </div>
 
@@ -109,6 +113,7 @@
     <div class="spinner"></div> Fetching data from Yahoo Finance…
 </div>
 <div id="fetch-error" class="flash error" style="display:none"></div>
+<div id="warnings-area"></div>
 
 <!-- ── Stats cards ───────────────────────────────────────── -->
 <div id="stats-area" style="display:none">
@@ -263,6 +268,23 @@
     max-width:340px; min-height:1.6em;
 }
 .control-group-wide { flex:1 1 auto; }
+.date-range-row {
+    display:flex; align-items:center; gap:.35rem; margin-top:.45rem;
+}
+.date-input {
+    width:140px !important; font-size:.82rem !important; padding:.3rem .45rem !important;
+}
+.date-sep { color:#556; font-size:.9rem; }
+.apply-btn {
+    padding:.3rem .7rem; font-size:.82rem; white-space:nowrap;
+    background:#1a3a5a; color:#7ecfff; border:1px solid #2a5a8a;
+    border-radius:5px; cursor:pointer; transition:background .15s;
+}
+.apply-btn:hover { background:#2a4a6a; }
+#warnings-area {
+    color:#f0c040; font-size:.85rem; padding:.4rem 0; line-height:1.5;
+}
+#warnings-area:empty { display:none; }
 #reinvest-group.dimmed { opacity:.35; pointer-events:none; }
 .load-btn { align-self:flex-end; padding:.45rem 1.2rem; font-size:.95rem; }
 
@@ -315,6 +337,8 @@ td.num { text-align:right; }
     var activePeriod  = '1y';
     var activeMode    = 'total';
     var activeReinvest = 100;
+    var customStart   = '';
+    var customEnd     = '';
 
     var tickerSelect  = document.getElementById('ticker-select');
     var compareInput  = document.getElementById('compare-input');
@@ -424,8 +448,25 @@ td.num { text-align:right; }
             document.querySelectorAll('#period-btns .pbtn').forEach(function(b){ b.classList.remove('pbtn-active'); });
             this.classList.add('pbtn-active');
             activePeriod = this.getAttribute('data-period');
+            // Clear custom date range
+            customStart = ''; customEnd = '';
+            document.getElementById('date-start').value = '';
+            document.getElementById('date-end').value = '';
             loadChart();
         });
+    });
+
+    // Custom date range — Apply button
+    document.getElementById('apply-dates-btn').addEventListener('click', function() {
+        var ds = document.getElementById('date-start').value;
+        var de = document.getElementById('date-end').value;
+        if (!ds || !de) { showError('Please select both start and end dates.'); return; }
+        if (ds >= de) { showError('Start date must be before end date.'); return; }
+        customStart = ds; customEnd = de;
+        // Deactivate period buttons
+        document.querySelectorAll('#period-btns .pbtn').forEach(function(b){ b.classList.remove('pbtn-active'); });
+        clearError();
+        loadChart();
     });
 
     // Mode button toggle
@@ -480,16 +521,22 @@ td.num { text-align:right; }
         var url = '/single_etf_return/data'
                 + '?t1='       + encodeURIComponent(t1)
                 + '&extra='    + encodeURIComponent(extraStr)
-                + '&period='   + encodeURIComponent(activePeriod)
                 + '&mode='     + encodeURIComponent(activeMode)
-                + '&reinvest=' + activeReinvest
-                + '&_='        + Date.now();
+                + '&reinvest=' + activeReinvest;
+        if (customStart && customEnd) {
+            url += '&start=' + encodeURIComponent(customStart)
+                 + '&end='   + encodeURIComponent(customEnd);
+        } else {
+            url += '&period=' + encodeURIComponent(activePeriod);
+        }
+        url += '&_=' + Date.now();
 
         fetch(url, {cache: 'no-store'})
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 setLoading(false);
                 if (data.error) { showError(data.error); return; }
+                renderWarnings(data.warnings);
                 renderChart(data.chart);
                 renderStats(data.stats);
                 renderPosition(data.db);
@@ -498,6 +545,12 @@ td.num { text-align:right; }
                 setLoading(false);
                 showError('Network error: ' + err.message);
             });
+    }
+
+    function renderWarnings(warns) {
+        var el = document.getElementById('warnings-area');
+        if (!warns || !warns.length) { el.innerHTML = ''; return; }
+        el.innerHTML = '\u26a0 ' + warns.join('<br>\u26a0 ');
     }
 
     function renderChart(figData) {

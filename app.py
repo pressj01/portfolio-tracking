@@ -1491,7 +1491,9 @@ def single_etf_return():
             / tickers_df["purchase_value"] * 100
         )
 
-    return render_template("single_etf_return.html", portfolio=tickers_df)
+    from datetime import date as date_type
+    return render_template("single_etf_return.html", portfolio=tickers_df,
+                           current_year=date_type.today().year)
 
 
 @app.route("/single_etf_return/data")
@@ -1542,23 +1544,54 @@ def single_etf_data():
         "1mo": "1 Month", "3mo": "3 Months", "6mo": "6 Months",
         "ytd": "Year to Date", "1y": "1 Year", "2y": "2 Years",
         "5y": "5 Years", "max": "All Available",
-        "2021": "Calendar 2021", "2022": "Calendar 2022",
-        "2023": "Calendar 2023", "2024": "Calendar 2024",
-        "2025": "Calendar 2025",
     }
+    # Dynamic calendar year labels
+    period_labels.update(
+        {str(y): f"Calendar {y}" for y in range(2021, date_type.today().year + 1)}
+    )
 
-    if period.isdigit() and len(period) == 4:
+    # Custom date range support
+    custom_start = request.args.get("start", "").strip()
+    custom_end   = request.args.get("end",   "").strip()
+    requested_start = None  # for fund-existence warnings
+    period_label = None
+
+    if custom_start and custom_end:
+        try:
+            cs = date_type.fromisoformat(custom_start)
+            ce = date_type.fromisoformat(custom_end)
+            if cs >= ce:
+                return jsonify({"error": "Start date must be before end date."}), 400
+            span_days = (ce - cs).days
+            yf_kwargs   = dict(start=custom_start, end=custom_end)
+            yf_interval = "1d" if span_days <= 180 else ("1wk" if span_days <= 730 else "1mo")
+            period_label = f"{custom_start} \u2192 {custom_end}"
+            requested_start = cs
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+    elif period.isdigit() and len(period) == 4:
         yr = int(period)
         today = date_type.today()
         start = f"{yr}-01-01"
         end   = today.strftime("%Y-%m-%d") if yr == today.year else f"{yr}-12-31"
         yf_kwargs   = dict(start=start, end=end)
         yf_interval = "1d" if yr == today.year else "1wk"
+        requested_start = date_type.fromisoformat(start)
     else:
         yf_range, yf_interval = period_map.get(period, (dict(period="1y"), "1wk"))
         yf_kwargs = yf_range
+        # Approximate requested_start for standard periods
+        _approx_days = {"1mo": 30, "3mo": 90, "6mo": 180, "ytd": None,
+                        "1y": 365, "2y": 730, "5y": 1825, "max": None}
+        ad = _approx_days.get(period)
+        if period == "ytd":
+            requested_start = date_type(date_type.today().year, 1, 1)
+        elif ad:
+            from datetime import timedelta
+            requested_start = date_type.today() - timedelta(days=ad)
 
-    period_label = period_labels.get(period, period)
+    if period_label is None:
+        period_label = period_labels.get(period, period)
 
     # ── Color / line-style per slot ──────────────────────────────────
     _EXTRA_COLORS = [
@@ -1926,6 +1959,27 @@ def single_etf_data():
                     "note": None,
                 })
 
+        # ── Fund existence warnings ──────────────────────────────────────────
+        warnings = []
+        if requested_start is not None:
+            from datetime import timedelta
+            tol = timedelta(days=7)
+            for sym, _ in slots:
+                for df in [close_adj, close_unadj]:
+                    if df.empty:
+                        continue
+                    s = get_col(df, sym)
+                    if s is not None and len(s) >= 2:
+                        first_date = s.index[0]
+                        # Convert to date for comparison
+                        fd = first_date.date() if hasattr(first_date, 'date') else first_date
+                        if fd > requested_start + tol:
+                            warnings.append(
+                                f"{sym}: data starts {fd.isoformat()} — "
+                                f"requested range begins earlier ({requested_start.isoformat()})"
+                            )
+                        break
+
         # ── Pairwise alphas (only when ≤5 tickers) ────────────────────────────
         alphas = []
         alpha_note = None
@@ -2022,6 +2076,7 @@ def single_etf_data():
             "chart": json.loads(json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)),
             "stats": stats_out,
             "db":    db_stats,
+            "warnings": warnings,
         })
 
     except Exception as e:
