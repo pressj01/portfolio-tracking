@@ -18,7 +18,7 @@
                 <a href="{{ url_for('watchlist') }}" class="{{ 'nav-active' if request.endpoint in ('watchlist', 'watchlist_watching_list', 'watchlist_sold_list', 'watchlist_data') else '' }}">Watchlist</a>
             </div>
         </div>
-        <div class="nav-dropdown {{ 'nav-dropdown-active' if request.endpoint in ('dividend_analysis', 'total_return', 'single_etf_return', 'single_etf_data', 'charts', 'div_calendar', 'buy_sell_signals', 'buy_sell_signals_data', 'nav_erosion', 'nav_erosion_data', 'nav_erosion_portfolio', 'nav_erosion_portfolio_list', 'nav_erosion_portfolio_data', 'portfolio_income_sim', 'portfolio_income_sim_list', 'portfolio_income_sim_run', 'portfolio_income_sim_saved', 'portfolio_income_sim_saved_item', 'portfolio_analytics', 'portfolio_analytics_data', 'portfolio_optimizer', 'portfolio_optimizer_data') else '' }}">
+        <div class="nav-dropdown {{ 'nav-dropdown-active' if request.endpoint in ('dividend_analysis', 'total_return', 'single_etf_return', 'single_etf_data', 'charts', 'div_calendar', 'buy_sell_signals', 'buy_sell_signals_data', 'nav_erosion', 'nav_erosion_data', 'nav_erosion_portfolio', 'nav_erosion_portfolio_list', 'nav_erosion_portfolio_data', 'portfolio_income_sim', 'portfolio_income_sim_list', 'portfolio_income_sim_run', 'portfolio_income_sim_saved', 'portfolio_income_sim_saved_item', 'portfolio_analytics', 'portfolio_analytics_data', 'portfolio_optimizer', 'portfolio_optimizer_data', 'portfolio_builder', 'pb_create_portfolio', 'pb_update_portfolio', 'pb_delete_portfolio', 'pb_get_holdings', 'pb_add_holding', 'pb_delete_holding', 'pb_analyze', 'pb_compare') else '' }}">
             <span class="nav-dropdown-label">Simulations &amp; Graphs &#9662;</span>
             <div class="nav-dropdown-menu">
                 <a href="{{ url_for('dividend_analysis') }}" class="{{ 'nav-active' if request.endpoint == 'dividend_analysis' else '' }}">Dividend Analysis</a>
@@ -32,6 +32,7 @@
                 <a href="{{ url_for('portfolio_income_sim') }}" class="{{ 'nav-active' if request.endpoint in ('portfolio_income_sim', 'portfolio_income_sim_list', 'portfolio_income_sim_run', 'portfolio_income_sim_saved', 'portfolio_income_sim_saved_item') else '' }}">Income Sim</a>
                 <a href="{{ url_for('portfolio_analytics') }}" class="{{ 'nav-active' if request.endpoint in ('portfolio_analytics', 'portfolio_analytics_data') else '' }}">Analytics</a>
                 <a href="{{ url_for('portfolio_optimizer') }}" class="{{ 'nav-active' if request.endpoint in ('portfolio_optimizer', 'portfolio_optimizer_data') else '' }}">Swap Advisor</a>
+                <a href="{{ url_for('portfolio_builder') }}" class="{{ 'nav-active' if request.endpoint in ('portfolio_builder', 'pb_create_portfolio', 'pb_update_portfolio', 'pb_delete_portfolio', 'pb_get_holdings', 'pb_add_holding', 'pb_delete_holding', 'pb_analyze', 'pb_compare') else '' }}">Port. Builder</a>
             </div>
         </div>
         <!-- Profile switcher pill -->

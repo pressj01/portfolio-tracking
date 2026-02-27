@@ -517,6 +517,37 @@ def ensure_tables_exist(conn):
         )
     """)
 
+    # builder_portfolios — named hypothetical portfolios per profile
+    cursor.execute("""
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                       WHERE TABLE_NAME = 'builder_portfolios')
+        CREATE TABLE dbo.builder_portfolios (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            profile_id  INT           NOT NULL DEFAULT 1,
+            name        NVARCHAR(100) NOT NULL,
+            notes       NVARCHAR(500) NULL,
+            created_at  DATETIME      NOT NULL DEFAULT GETDATE(),
+            updated_at  DATETIME      NOT NULL DEFAULT GETDATE(),
+            CONSTRAINT uq_builder_portfolios_profile_name UNIQUE (profile_id, name)
+        )
+    """)
+
+    # builder_holdings — individual positions in a builder portfolio
+    cursor.execute("""
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                       WHERE TABLE_NAME = 'builder_holdings')
+        CREATE TABLE dbo.builder_holdings (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            portfolio_id  INT          NOT NULL,
+            ticker        NVARCHAR(20) NOT NULL,
+            dollar_amount FLOAT        NOT NULL DEFAULT 0,
+            added_at      DATETIME     NOT NULL DEFAULT GETDATE(),
+            CONSTRAINT uq_builder_holdings_portfolio_ticker UNIQUE (portfolio_id, ticker),
+            CONSTRAINT fk_builder_holdings_portfolio
+                FOREIGN KEY (portfolio_id) REFERENCES dbo.builder_portfolios(id)
+        )
+    """)
+
     conn.commit()
 
 

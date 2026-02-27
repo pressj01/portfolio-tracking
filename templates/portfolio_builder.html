@@ -1,0 +1,1395 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+/* ── Layout ─────────────────────────────────────────────────────── */
+.pb-layout {
+  display: flex;
+  gap: 0;
+  min-height: 80vh;
+  margin: -0.5rem -1rem 0;   /* bleed to container edges */
+}
+
+/* Sidebar */
+.pb-sidebar {
+  width: 250px;
+  min-width: 250px;
+  background: #0d0d1f;
+  border-right: 1px solid #1e1e3a;
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 60px);
+  position: sticky;
+  top: 0;
+}
+.pb-sidebar-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  padding: 0 0.25rem 0.4rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid #1e1e3a;
+}
+.pb-new-btn {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  background: transparent;
+  border: 1px dashed #2a3a4a;
+  border-radius: 6px;
+  color: #7ecfff;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 0.6rem;
+  transition: border-color 0.2s, background 0.2s;
+}
+.pb-new-btn:hover { border-color: #7ecfff; background: rgba(126,207,255,0.06); }
+
+.pb-port-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.42rem 0.5rem;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+  transition: background 0.15s;
+}
+.pb-port-item:hover { background: #111124; }
+.pb-port-item.pb-port-active {
+  background: #111124;
+  border-color: #7ecfff33;
+  border-left: 3px solid #7ecfff;
+  padding-left: 0.35rem;
+}
+.pb-port-name {
+  flex: 1;
+  font-size: 0.83rem;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-port-count {
+  font-size: 0.7rem;
+  color: #555;
+  flex-shrink: 0;
+}
+.pb-port-del {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.pb-port-del:hover { color: #ff5252; }
+
+.pb-sidebar-sep {
+  border: none;
+  border-top: 1px solid #1e1e3a;
+  margin: 0.8rem 0;
+}
+.pb-compare-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  padding: 0 0.25rem 0.4rem;
+}
+.pb-compare-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.25rem;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+.pb-compare-item input[type=checkbox] { accent-color: #7ecfff; cursor: pointer; }
+.pb-compare-run {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.42rem;
+  background: linear-gradient(135deg, #7ecfff 0%, #4a90d9 100%);
+  border: none;
+  border-radius: 5px;
+  color: #000;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.pb-compare-run:hover { opacity: 0.9; }
+
+/* Main content */
+.pb-main {
+  flex: 1;
+  padding: 1.2rem 1.5rem;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+/* Portfolio header */
+.pb-port-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.pb-port-title-wrap { display: flex; align-items: center; gap: 0.5rem; }
+#pb-active-name {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #fff;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.1rem 0.2rem;
+  cursor: pointer;
+  outline: none;
+  min-width: 140px;
+}
+#pb-active-name:focus { border-bottom-color: #7ecfff; background: rgba(126,207,255,0.06); border-radius: 3px 3px 0 0; }
+#pb-name-hint { font-size: 0.7rem; color: #555; }
+
+/* Controls bar */
+.pb-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.2rem;
+}
+.pb-period-btn {
+  padding: 0.28rem 0.6rem;
+  background: #1a1a3a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.pb-period-btn.pb-period-active {
+  background: #7ecfff;
+  color: #000;
+  border-color: #7ecfff;
+  font-weight: 600;
+}
+.pb-bench-input {
+  width: 75px;
+  padding: 0.3rem 0.4rem;
+  background: #111124;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #ddd;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+.pb-analyze-btn {
+  padding: 0.4rem 1.2rem;
+  background: linear-gradient(135deg, #7ecfff 0%, #4a90d9 100%);
+  border: none;
+  border-radius: 5px;
+  color: #000;
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.pb-analyze-btn:hover { opacity: 0.9; }
+.pb-analyze-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Add-holding row */
+.pb-add-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1.2rem;
+  flex-wrap: wrap;
+}
+.pb-add-ticker {
+  width: 110px;
+  padding: 0.35rem 0.5rem;
+  background: #111124;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #ddd;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+.pb-add-dollars {
+  width: 130px;
+  padding: 0.35rem 0.5rem;
+  background: #111124;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #ddd;
+  font-size: 0.85rem;
+}
+.pb-add-submit {
+  padding: 0.36rem 0.9rem;
+  background: #1a1a3a;
+  border: 1px solid #7ecfff;
+  border-radius: 4px;
+  color: #7ecfff;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.pb-add-submit:hover { background: rgba(126,207,255,0.12); }
+
+/* Holdings table */
+.pb-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 480px;
+  border: 1px solid #1e1e3a;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+}
+/* Top scrollbar sync */
+.pb-table-scroll-top {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 14px;
+  margin-bottom: 2px;
+}
+.pb-table-scroll-top-inner { height: 1px; }
+
+.pb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  min-width: 1100px;
+}
+.pb-table th {
+  background: #0d0d1f;
+  color: #7ecfff;
+  padding: 0.42rem 0.55rem;
+  text-align: right;
+  border-bottom: 2px solid #1e1e3a;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  user-select: none;
+}
+.pb-table th:first-child { text-align: left; }
+.pb-table td {
+  padding: 0.38rem 0.55rem;
+  border-bottom: 1px solid #171728;
+  text-align: right;
+  color: #ddd;
+}
+.pb-table td:first-child { text-align: left; font-weight: 600; color: #7ecfff; }
+.pb-table tbody tr:hover { background: #0f0f22; }
+
+/* Inline dollar edit */
+.pb-dollar-cell { cursor: pointer; position: relative; }
+.pb-dollar-cell:hover::after {
+  content: " ✏";
+  font-size: 0.7rem;
+  color: #555;
+}
+.pb-dollar-input {
+  width: 100px;
+  background: #111124;
+  border: 1px solid #7ecfff;
+  border-radius: 3px;
+  color: #fff;
+  padding: 0.15rem 0.3rem;
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+/* Delete holding button */
+.pb-del-holding {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0 4px;
+}
+.pb-del-holding:hover { color: #ff5252; }
+
+/* Metric coloring */
+.pb-good { color: #00e89a; }
+.pb-mid  { color: #f9a825; }
+.pb-bad  { color: #ff5252; }
+.pb-na   { color: #444; }
+
+/* Empty state */
+.pb-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #444;
+  font-size: 0.9rem;
+}
+
+/* Spinner */
+.pb-spinner-wrap {
+  display: none;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1.5rem 0;
+}
+.pb-spinner {
+  width: 32px; height: 32px;
+  border: 4px solid #1a1a3a;
+  border-top-color: #7ecfff;
+  border-radius: 50%;
+  animation: pb-spin 0.75s linear infinite;
+}
+@keyframes pb-spin { to { transform: rotate(360deg); } }
+
+/* Grade panel */
+.pb-grade-section { margin-bottom: 1.5rem; }
+
+/* Charts section */
+.pb-charts-section { margin-bottom: 1.5rem; }
+.pb-chart-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+}
+
+/* Comparison section */
+.pb-comp-section { margin-bottom: 2rem; }
+.pb-comp-chart-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+  margin-top: 1rem;
+}
+
+/* Error flash */
+.pb-error {
+  display: none;
+  background: rgba(255,82,82,0.1);
+  border: 1px solid #ff5252;
+  color: #ff8a80;
+  padding: 0.6rem 1rem;
+  border-radius: 5px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+/* Reuse pa-grade-ring etc. */
+.pa-grade-ring {
+  width:130px;height:130px;border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  border:5px solid #333;position:relative;flex-shrink:0;
+}
+.pa-grade-letter { font-size:2.4rem;font-weight:800;line-height:1; }
+.pa-grade-score  { font-size:0.75rem;color:#888;margin-top:2px; }
+.pa-grade-A  { border-color:#00e89a; }
+.pa-grade-A .pa-grade-letter  { color:#00e89a; }
+.pa-grade-B  { border-color:#7ecfff; }
+.pa-grade-B .pa-grade-letter  { color:#7ecfff; }
+.pa-grade-C  { border-color:#f9a825; }
+.pa-grade-C .pa-grade-letter  { color:#f9a825; }
+.pa-grade-D  { border-color:#ff8a50; }
+.pa-grade-D .pa-grade-letter  { color:#ff8a50; }
+.pa-grade-F  { border-color:#ff5252; }
+.pa-grade-F .pa-grade-letter  { color:#ff5252; }
+.pa-breakdown-row { display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem; }
+.pa-breakdown-label { width:130px;font-size:0.76rem;color:#aaa;text-align:right;flex-shrink:0; }
+.pa-breakdown-bar-bg { flex:1;height:13px;background:#1a1a2e;border-radius:3px;overflow:hidden; }
+.pa-breakdown-bar { height:100%;border-radius:3px;transition:width 0.5s ease; }
+.pa-breakdown-grade { width:28px;font-size:0.76rem;font-weight:700;text-align:center; }
+.pa-breakdown-weight { width:30px;font-size:0.67rem;color:#666;text-align:right; }
+.pa-summary-card {
+  background:#111124;border:1px solid #252540;border-radius:8px;
+  padding:0.5rem 1rem;text-align:center;min-width:110px;
+}
+.pa-summary-card .pa-card-val { font-size:1.2rem;font-weight:700; }
+.pa-summary-card .pa-card-lbl { font-size:0.7rem;color:#888;margin-top:2px; }
+
+/* New-portfolio modal overlay */
+.pb-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 900;
+  align-items: center;
+  justify-content: center;
+}
+.pb-modal-overlay.pb-modal-open { display: flex; }
+.pb-modal {
+  background: #111124;
+  border: 1px solid #2a2a4e;
+  border-radius: 10px;
+  padding: 1.5rem;
+  width: 340px;
+  max-width: 95vw;
+}
+.pb-modal h3 { margin: 0 0 1rem; font-size: 1rem; color: #7ecfff; }
+.pb-modal input, .pb-modal textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d0d1f;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #ddd;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.7rem;
+}
+.pb-modal textarea { height: 60px; resize: vertical; font-family: inherit; }
+.pb-modal-btns { display: flex; justify-content: flex-end; gap: 0.6rem; }
+.pb-modal-cancel {
+  padding: 0.38rem 0.9rem;
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #aaa;
+  cursor: pointer;
+}
+.pb-modal-create {
+  padding: 0.38rem 0.9rem;
+  background: #7ecfff;
+  border: none;
+  border-radius: 4px;
+  color: #000;
+  font-weight: 700;
+  cursor: pointer;
+}
+</style>
+
+<!-- New-portfolio modal -->
+<div class="pb-modal-overlay" id="pb-modal-overlay">
+  <div class="pb-modal">
+    <h3>New Portfolio</h3>
+    <input id="pb-modal-name" type="text" placeholder="Portfolio name (e.g. Income Heavy)" maxlength="100">
+    <textarea id="pb-modal-notes" placeholder="Notes (optional)"></textarea>
+    <div class="pb-modal-btns">
+      <button class="pb-modal-cancel" onclick="closeModal()">Cancel</button>
+      <button class="pb-modal-create" onclick="createPortfolio()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="pb-layout">
+
+  <!-- ── Sidebar ── -->
+  <div class="pb-sidebar">
+    <div class="pb-sidebar-title">Saved Portfolios</div>
+    <button class="pb-new-btn" onclick="openModal()">＋ New Portfolio</button>
+    <div id="pb-port-list">
+      {% if not portfolios %}
+      <p style="font-size:0.78rem;color:#444;padding:0.3rem 0.25rem">No portfolios yet.</p>
+      {% endif %}
+      {% for p in portfolios %}
+      <div class="pb-port-item" id="pb-item-{{ p.id }}" onclick="loadPortfolio({{ p.id }}, '{{ p.name|e }}')">
+        <span class="pb-port-name">{{ p.name }}</span>
+        <span class="pb-port-count">{{ p.holding_count }}</span>
+        <button class="pb-port-del" onclick="event.stopPropagation();deletePortfolio({{ p.id }})" title="Delete">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+
+    <hr class="pb-sidebar-sep">
+    <div class="pb-compare-title">Compare Portfolios</div>
+    <div id="pb-compare-list">
+      {% for p in portfolios %}
+      <label class="pb-compare-item">
+        <input type="checkbox" class="pb-compare-chk" value="{{ p.id }}" data-name="{{ p.name|e }}">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div style="margin-top:0.4rem">
+      <label style="font-size:0.72rem;color:#555">
+        Period:
+        <select id="pb-compare-period" style="background:#0d0d1f;border:1px solid #222;color:#aaa;font-size:0.75rem;padding:2px 4px;border-radius:3px;margin-left:3px">
+          <option value="3mo">3M</option>
+          <option value="6mo">6M</option>
+          <option value="1y" selected>1Y</option>
+          <option value="2y">2Y</option>
+          <option value="5y">5Y</option>
+        </select>
+      </label>
+    </div>
+    <button class="pb-compare-run" onclick="runComparison()">Run Comparison</button>
+  </div>
+
+  <!-- ── Main ── -->
+  <div class="pb-main">
+
+    <!-- Empty / select state -->
+    <div id="pb-no-selection" {% if portfolios %}style="display:none"{% endif %}>
+      <div class="pb-empty" style="margin-top:4rem">
+        <div style="font-size:2.5rem;margin-bottom:0.8rem">📊</div>
+        <div style="font-size:1.1rem;color:#666;margin-bottom:0.4rem">No portfolio selected</div>
+        <div style="font-size:0.85rem;color:#444">Create a new portfolio using the sidebar, then add tickers and click Analyze.</div>
+      </div>
+    </div>
+
+    <!-- Active portfolio panel -->
+    <div id="pb-active-panel" {% if portfolios %}style=""{% else %}style="display:none"{% endif %}>
+
+      <!-- Header: name + controls -->
+      <div class="pb-port-header">
+        <div class="pb-port-title-wrap">
+          <input id="pb-active-name" type="text" value="" readonly
+                 title="Click to rename"
+                 onclick="startRename()"
+                 onblur="commitRename()"
+                 onkeydown="if(event.key==='Enter'){this.blur();}if(event.key==='Escape'){cancelRename();}">
+          <span id="pb-name-hint"></span>
+        </div>
+      </div>
+
+      <!-- Controls row -->
+      <div class="pb-controls">
+        <div style="display:flex;gap:3px" id="pb-periods">
+          {% for p, lbl in [("3mo","3M"),("6mo","6M"),("1y","1Y"),("2y","2Y"),("5y","5Y")] %}
+          <button data-period="{{ p }}" class="pb-period-btn{{ ' pb-period-active' if p == '1y' else '' }}"
+                  onclick="setPeriod('{{ p }}')">{{ lbl }}</button>
+          {% endfor %}
+        </div>
+        <label style="font-size:0.78rem;color:#777;display:flex;align-items:center;gap:4px">
+          Benchmark
+          <input class="pb-bench-input" id="pb-bench" type="text" value="SPY">
+        </label>
+        <button class="pb-analyze-btn" id="pb-analyze-btn" onclick="analyzePortfolio()">Analyze</button>
+      </div>
+
+      <!-- Add holding row -->
+      <div class="pb-add-row">
+        <input class="pb-add-ticker" id="pb-add-ticker" type="text" placeholder="Ticker">
+        <input class="pb-add-dollars" id="pb-add-dollars" type="number" placeholder="$ Amount" min="0" step="100">
+        <button class="pb-add-submit" onclick="addHolding()">＋ Add</button>
+        <span id="pb-add-status" style="font-size:0.78rem;color:#00e89a;display:none"></span>
+      </div>
+
+      <!-- Top scrollbar for holdings table (sync) -->
+      <div class="pb-table-scroll-top" id="pb-scroll-top">
+        <div class="pb-table-scroll-top-inner" id="pb-scroll-top-inner"></div>
+      </div>
+
+      <!-- Holdings table -->
+      <div class="pb-table-wrap" id="pb-table-wrap">
+        <table class="pb-table" id="pb-holdings-table">
+          <thead>
+            <tr>
+              <th style="text-align:left;min-width:80px">Ticker</th>
+              <th style="min-width:100px">$ Amount</th>
+              <th>Shares</th>
+              <th>Wt%</th>
+              <th>Sharpe</th>
+              <th>Sortino</th>
+              <th>Calmar</th>
+              <th>Omega</th>
+              <th>Up Cap</th>
+              <th>Dn Cap</th>
+              <th>Ann Ret%</th>
+              <th>Ann Vol%</th>
+              <th>Max DD%</th>
+              <th>52w High</th>
+              <th>52w Low</th>
+              <th>Ann Inc</th>
+              <th>Mon Inc</th>
+              <th>Yield%</th>
+              <th style="text-align:center;min-width:36px"></th>
+            </tr>
+          </thead>
+          <tbody id="pb-holdings-body">
+            <tr><td colspan="19" class="pb-empty" style="padding:1.5rem">No holdings yet — add a ticker above.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Spinner -->
+      <div class="pb-spinner-wrap" id="pb-spinner">
+        <div class="pb-spinner"></div>
+        <span style="color:#aaa;font-size:0.88rem">Fetching data &amp; calculating metrics&hellip;</span>
+      </div>
+
+      <!-- Error -->
+      <div class="pb-error" id="pb-error"></div>
+
+      <!-- Grade panel -->
+      <div class="pb-grade-section" id="pb-grade-section" style="display:none">
+        <h2 style="font-size:1.05rem;color:#7ecfff;margin-bottom:0.8rem">Portfolio Report Card</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-start">
+          <!-- Grade ring -->
+          <div id="pb-grade-ring" class="pa-grade-ring">
+            <div class="pa-grade-letter" id="pb-grade-letter">--</div>
+            <div class="pa-grade-score" id="pb-grade-score">0 / 100</div>
+          </div>
+          <!-- Breakdown bars -->
+          <div style="flex:1;min-width:260px">
+            <div id="pb-grade-breakdown"></div>
+          </div>
+          <!-- Summary stats -->
+          <div style="display:flex;flex-direction:column;gap:0.45rem;min-width:140px">
+            <div class="pa-summary-card">
+              <div class="pa-card-val" id="pb-stat-holdings">--</div>
+              <div class="pa-card-lbl">Holdings</div>
+            </div>
+            <div class="pa-summary-card">
+              <div class="pa-card-val" id="pb-stat-effn">--</div>
+              <div class="pa-card-lbl">Effective N</div>
+            </div>
+            <div class="pa-summary-card">
+              <div class="pa-card-val" id="pb-stat-mdd">--</div>
+              <div class="pa-card-lbl">Max Drawdown</div>
+            </div>
+            <div class="pa-summary-card">
+              <div class="pa-card-val" id="pb-stat-topwt">--</div>
+              <div class="pa-card-lbl">Top Holding Wt</div>
+            </div>
+            <div class="pa-summary-card">
+              <div class="pa-card-val pb-good" id="pb-stat-annual-inc">--</div>
+              <div class="pa-card-lbl">Est. Annual Income</div>
+            </div>
+            <div class="pa-summary-card">
+              <div class="pa-card-val pb-good" id="pb-stat-monthly-inc">--</div>
+              <div class="pa-card-lbl">Est. Monthly Income</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts: scatter + corr + drawdown -->
+      <div class="pb-charts-section" id="pb-charts-section" style="display:none">
+        <h2 style="font-size:1.05rem;color:#7ecfff;margin-bottom:0.8rem">Risk &amp; Performance Charts</h2>
+        <div class="pb-chart-row">
+          <div style="flex:1;min-width:340px">
+            <div id="pb-scatter-chart" style="width:100%;height:380px"></div>
+          </div>
+          <div style="flex:1;min-width:340px">
+            <div id="pb-corr-chart" style="width:100%;height:380px"></div>
+          </div>
+        </div>
+        <div style="margin-top:1rem">
+          <div id="pb-drawdown-chart" style="width:100%;height:240px"></div>
+        </div>
+      </div>
+
+    </div><!-- /pb-active-panel -->
+
+    <!-- Comparison section (shown after Run Comparison) -->
+    <div id="pb-comp-section" style="display:none" class="pb-comp-section">
+      <hr style="border-color:#1e1e3a;margin:1.5rem 0">
+      <h2 style="font-size:1.1rem;color:#7ecfff;margin-bottom:0.6rem">Portfolio Comparison</h2>
+      <div id="pb-comp-error" class="pb-error"></div>
+      <div class="pb-comp-chart-row">
+        <div style="flex:1;min-width:340px">
+          <div id="pb-radar-chart" style="width:100%;height:420px"></div>
+        </div>
+        <div style="flex:1;min-width:340px">
+          <div id="pb-income-chart" style="width:100%;height:420px"></div>
+        </div>
+      </div>
+      <!-- Comparison table -->
+      <div style="overflow-x:auto;margin-top:1rem">
+        <table class="pb-table" id="pb-comp-table" style="min-width:700px">
+          <thead>
+            <tr>
+              <th style="text-align:left">Portfolio</th>
+              <th>Grade</th>
+              <th>Score</th>
+              <th>Mon. Income</th>
+              <th>Sharpe</th>
+              <th>Sortino</th>
+              <th>Calmar</th>
+              <th>Omega</th>
+              <th>Max DD</th>
+              <th>Eff. N</th>
+            </tr>
+          </thead>
+          <tbody id="pb-comp-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /pb-main -->
+</div><!-- /pb-layout -->
+
+<script>
+(function(){
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  var activePeriod = "1y";
+  var activePortfolioId = null;
+  var activePortfolioName = "";
+  var _renamePrevName = "";
+  var holdingsCache = [];   // [{ticker, dollar_amount}, ...]
+  var metricsCache = {};    // ticker -> metrics row (after analyze)
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function fmt$(v){
+    if(v === null || v === undefined) return "--";
+    return "$" + parseFloat(v).toLocaleString("en-US", {minimumFractionDigits:0, maximumFractionDigits:0});
+  }
+  function fmtN(v, dec){
+    if(v === null || v === undefined) return '<span class="pb-na">N/A</span>';
+    return parseFloat(v).toFixed(dec === undefined ? 2 : dec);
+  }
+  function colorMetric(val, type){
+    if(val === null || val === undefined) return '<span class="pb-na">N/A</span>';
+    var v = parseFloat(val), cls = "";
+    if(type==="sharpe"||type==="sortino") cls = v>=1.0?"pb-good":(v>=0.5?"pb-mid":"pb-bad");
+    else if(type==="calmar")  cls = v>=1.0?"pb-good":(v>=0.5?"pb-mid":"pb-bad");
+    else if(type==="omega")   cls = v>=1.5?"pb-good":(v>=1.0?"pb-mid":"pb-bad");
+    else if(type==="up_cap")  cls = (v>=60&&v<=100)?"pb-good":"pb-mid";
+    else if(type==="dn_cap")  cls = v<90?"pb-good":(v<110?"pb-mid":"pb-bad");
+    else if(type==="ann_ret") cls = v>=0?"pb-good":"pb-bad";
+    else if(type==="mdd")     cls = v>-15?"pb-good":(v>-30?"pb-mid":"pb-bad");
+    return '<span class="'+cls+'">'+v.toFixed(2)+'</span>';
+  }
+  function gradeColor(g){
+    if(!g) return "#555";
+    var c = g.charAt(0);
+    return c==="A"?"#00e89a":c==="B"?"#7ecfff":c==="C"?"#f9a825":c==="D"?"#ff8a50":"#ff5252";
+  }
+  function gradeClass(g){
+    if(!g) return "";
+    return "pa-grade-" + g.charAt(0);
+  }
+  function showError(msg, elId){
+    var el = document.getElementById(elId || "pb-error");
+    el.textContent = msg; el.style.display = "block";
+    setTimeout(function(){ el.style.display = "none"; }, 7000);
+  }
+
+  // ── Sync top scrollbar ─────────────────────────────────────────────────────
+  var topScroll = document.getElementById("pb-scroll-top");
+  var tableWrap = document.getElementById("pb-table-wrap");
+  topScroll.addEventListener("scroll", function(){ tableWrap.scrollLeft = topScroll.scrollLeft; });
+  tableWrap.addEventListener("scroll", function(){ topScroll.scrollLeft = tableWrap.scrollLeft; });
+  function syncScrollWidth(){
+    var tbl = document.getElementById("pb-holdings-table");
+    var inner = document.getElementById("pb-scroll-top-inner");
+    if(tbl) inner.style.width = tbl.offsetWidth + "px";
+  }
+
+  // ── Period buttons ─────────────────────────────────────────────────────────
+  window.setPeriod = function(p){
+    activePeriod = p;
+    document.querySelectorAll(".pb-period-btn").forEach(function(b){
+      var isActive = b.getAttribute("data-period") === p;
+      b.classList.toggle("pb-period-active", isActive);
+      b.style.background = isActive ? "#7ecfff" : "#1a1a3a";
+      b.style.color = isActive ? "#000" : "#aaa";
+      b.style.fontWeight = isActive ? "600" : "";
+    });
+  };
+
+  // ── Modal ──────────────────────────────────────────────────────────────────
+  window.openModal = function(){
+    document.getElementById("pb-modal-name").value = "";
+    document.getElementById("pb-modal-notes").value = "";
+    document.getElementById("pb-modal-overlay").classList.add("pb-modal-open");
+    setTimeout(function(){ document.getElementById("pb-modal-name").focus(); }, 80);
+  };
+  window.closeModal = function(){
+    document.getElementById("pb-modal-overlay").classList.remove("pb-modal-open");
+  };
+  document.getElementById("pb-modal-overlay").addEventListener("click", function(e){
+    if(e.target === this) closeModal();
+  });
+  document.getElementById("pb-modal-name").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); createPortfolio(); }
+    if(e.key === "Escape") closeModal();
+  });
+
+  window.createPortfolio = function(){
+    var name = document.getElementById("pb-modal-name").value.trim();
+    var notes = document.getElementById("pb-modal-notes").value.trim();
+    if(!name){ alert("Portfolio name is required."); return; }
+    fetch("/portfolio_builder/portfolios", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({name:name, notes:notes})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){ alert("Error: " + d.error); return; }
+      closeModal();
+      _addSidebarItem(d.id, d.name, 0);
+      loadPortfolio(d.id, d.name);
+    }).catch(function(e){ alert("Request failed: " + e); });
+  };
+
+  function _addSidebarItem(id, name, count){
+    var list = document.getElementById("pb-port-list");
+    // Remove "no portfolios" placeholder
+    var placeholder = list.querySelector("p");
+    if(placeholder) placeholder.remove();
+
+    var div = document.createElement("div");
+    div.className = "pb-port-item";
+    div.id = "pb-item-" + id;
+    div.setAttribute("onclick", "loadPortfolio("+id+", '"+name.replace(/'/g,"\\'")+"')");
+    div.innerHTML =
+      '<span class="pb-port-name">'+_escHtml(name)+'</span>'+
+      '<span class="pb-port-count">'+count+'</span>'+
+      '<button class="pb-port-del" onclick="event.stopPropagation();deletePortfolio('+id+')" title="Delete">✕</button>';
+    list.prepend(div);
+
+    // Add to compare list
+    var compList = document.getElementById("pb-compare-list");
+    var label = document.createElement("label");
+    label.className = "pb-compare-item";
+    label.id = "pb-cmp-" + id;
+    label.innerHTML = '<input type="checkbox" class="pb-compare-chk" value="'+id+'" data-name="'+_escAttr(name)+'">'+
+      '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_escHtml(name)+'</span>';
+    compList.appendChild(label);
+  }
+
+  function _escHtml(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  function _escAttr(s){ return String(s).replace(/"/g,"&quot;"); }
+
+  // ── Delete portfolio ───────────────────────────────────────────────────────
+  window.deletePortfolio = function(id){
+    if(!confirm("Delete this portfolio and all its holdings?")) return;
+    fetch("/portfolio_builder/portfolios/"+id, {method:"DELETE"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.error){ alert("Error: " + d.error); return; }
+        var item = document.getElementById("pb-item-"+id);
+        if(item) item.remove();
+        var cmpItem = document.getElementById("pb-cmp-"+id);
+        if(cmpItem) cmpItem.remove();
+        if(activePortfolioId === id){
+          activePortfolioId = null;
+          document.getElementById("pb-no-selection").style.display = "";
+          document.getElementById("pb-active-panel").style.display = "none";
+          document.getElementById("pb-comp-section").style.display = "none";
+        }
+      }).catch(function(e){ alert("Request failed: " + e); });
+  };
+
+  // ── Load portfolio ─────────────────────────────────────────────────────────
+  window.loadPortfolio = function(id, name){
+    // Highlight sidebar
+    document.querySelectorAll(".pb-port-item").forEach(function(el){ el.classList.remove("pb-port-active"); });
+    var item = document.getElementById("pb-item-"+id);
+    if(item) item.classList.add("pb-port-active");
+
+    activePortfolioId = id;
+    activePortfolioName = name;
+
+    document.getElementById("pb-active-name").value = name;
+    _renamePrevName = name;
+
+    document.getElementById("pb-no-selection").style.display = "none";
+    document.getElementById("pb-active-panel").style.display = "";
+    document.getElementById("pb-grade-section").style.display = "none";
+    document.getElementById("pb-charts-section").style.display = "none";
+    document.getElementById("pb-error").style.display = "none";
+    metricsCache = {};
+
+    // Load holdings
+    fetch("/portfolio_builder/portfolios/"+id+"/holdings")
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.error){ showError(d.error); return; }
+        holdingsCache = d.holdings || [];
+        renderHoldingsTable(holdingsCache, {});
+        syncScrollWidth();
+      }).catch(function(e){ showError("Failed to load holdings: " + e); });
+  };
+
+  // ── Render holdings table ─────────────────────────────────────────────────
+  function renderHoldingsTable(holdings, metricsMap){
+    var body = document.getElementById("pb-holdings-body");
+    if(!holdings || !holdings.length){
+      body.innerHTML = '<tr><td colspan="19" class="pb-empty" style="padding:1.5rem">No holdings yet — add a ticker above.</td></tr>';
+      return;
+    }
+
+    // Total $ for weight calc
+    var total$ = holdings.reduce(function(s,h){ return s + (parseFloat(h.dollar_amount)||0); }, 0);
+
+    var html = "";
+    holdings.forEach(function(h){
+      var m = metricsMap[h.ticker] || {};
+      var wt = total$ > 0 ? (h.dollar_amount / total$ * 100).toFixed(1) : "--";
+      var shares = m.shares !== undefined && m.shares !== null ? parseFloat(m.shares).toFixed(2) : "--";
+      var price = m.current_price !== undefined && m.current_price !== null ? "$"+parseFloat(m.current_price).toFixed(2) : "";
+      html += '<tr data-ticker="'+h.ticker+'">';
+      html += '<td>'+_escHtml(h.ticker) + (price ? '<br><span style="font-size:0.7rem;color:#555;font-weight:400">'+price+'</span>' : '') + '</td>';
+      // Dollar amount — inline editable
+      html += '<td class="pb-dollar-cell" onclick="startEditDollar(this, \''+h.ticker+'\', '+h.dollar_amount+')" title="Click to edit">'+fmt$(h.dollar_amount)+'</td>';
+      html += '<td>'+shares+'</td>';
+      html += '<td>'+wt+'%</td>';
+      html += '<td>'+colorMetric(m.sharpe,"sharpe")+'</td>';
+      html += '<td>'+colorMetric(m.sortino,"sortino")+'</td>';
+      html += '<td>'+colorMetric(m.calmar,"calmar")+'</td>';
+      html += '<td>'+colorMetric(m.omega,"omega")+'</td>';
+      html += '<td>'+colorMetric(m.up_capture,"up_cap")+'</td>';
+      html += '<td>'+colorMetric(m.down_capture,"dn_cap")+'</td>';
+      html += '<td>'+colorMetric(m.annual_ret,"ann_ret")+'</td>';
+      html += '<td>'+fmtN(m.annual_vol)+'</td>';
+      html += '<td>'+(m.max_drawdown!==undefined&&m.max_drawdown!==null ? colorMetric(parseFloat(m.max_drawdown)*100,"mdd") : '<span class="pb-na">N/A</span>')+'</td>';
+      html += '<td>'+(m.week52_high!==undefined&&m.week52_high!==null ? '$'+parseFloat(m.week52_high).toFixed(2) : '<span class="pb-na">N/A</span>')+'</td>';
+      html += '<td>'+(m.week52_low!==undefined&&m.week52_low!==null ? '$'+parseFloat(m.week52_low).toFixed(2) : '<span class="pb-na">N/A</span>')+'</td>';
+      html += '<td>'+(m.annual_income!==undefined&&m.annual_income!==null ? fmt$(m.annual_income) : '--')+'</td>';
+      html += '<td>'+(m.monthly_income!==undefined&&m.monthly_income!==null ? fmt$(m.monthly_income) : '--')+'</td>';
+      html += '<td>'+(m.annual_yield_pct!==undefined&&m.annual_yield_pct!==null ? fmtN(m.annual_yield_pct,1)+'%' : '<span class="pb-na">N/A</span>')+'</td>';
+      html += '<td style="text-align:center"><button class="pb-del-holding" onclick="deleteHolding(\''+h.ticker+'\')" title="Remove">🗑</button></td>';
+      html += '</tr>';
+    });
+    body.innerHTML = html;
+    setTimeout(syncScrollWidth, 50);
+  }
+
+  // ── Add holding ────────────────────────────────────────────────────────────
+  window.addHolding = function(){
+    if(!activePortfolioId){ alert("Select or create a portfolio first."); return; }
+    var ticker = document.getElementById("pb-add-ticker").value.trim().toUpperCase();
+    var dollars = parseFloat(document.getElementById("pb-add-dollars").value);
+    if(!ticker){ alert("Enter a ticker symbol."); return; }
+    if(!dollars || dollars <= 0){ alert("Enter a positive dollar amount."); return; }
+
+    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/holdings", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ticker:ticker, dollar_amount:dollars})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){ showError("Error: " + d.error); return; }
+      document.getElementById("pb-add-ticker").value = "";
+      document.getElementById("pb-add-dollars").value = "";
+      // Refresh holdings list
+      var existing = holdingsCache.findIndex(function(h){ return h.ticker === ticker; });
+      if(existing >= 0) holdingsCache[existing].dollar_amount = dollars;
+      else holdingsCache.push({ticker:ticker, dollar_amount:dollars});
+      renderHoldingsTable(holdingsCache, metricsCache);
+      // Update sidebar count
+      _updateSidebarCount(activePortfolioId, holdingsCache.length);
+      var st = document.getElementById("pb-add-status");
+      st.textContent = ticker + " added"; st.style.display = "inline";
+      setTimeout(function(){ st.style.display = "none"; }, 2500);
+    }).catch(function(e){ showError("Request failed: " + e); });
+  };
+
+  // Enter key on add row
+  document.getElementById("pb-add-ticker").addEventListener("keydown", function(e){
+    if(e.key==="Enter"){ e.preventDefault(); document.getElementById("pb-add-dollars").focus(); }
+  });
+  document.getElementById("pb-add-dollars").addEventListener("keydown", function(e){
+    if(e.key==="Enter"){ e.preventDefault(); addHolding(); }
+  });
+
+  // ── Delete holding ─────────────────────────────────────────────────────────
+  window.deleteHolding = function(ticker){
+    if(!activePortfolioId) return;
+    if(!confirm("Remove " + ticker + " from this portfolio?")) return;
+    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/holdings/"+ticker, {method:"DELETE"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.error){ showError(d.error); return; }
+        holdingsCache = holdingsCache.filter(function(h){ return h.ticker !== ticker; });
+        delete metricsCache[ticker];
+        renderHoldingsTable(holdingsCache, metricsCache);
+        _updateSidebarCount(activePortfolioId, holdingsCache.length);
+      }).catch(function(e){ showError("Request failed: " + e); });
+  };
+
+  // ── Inline dollar edit ─────────────────────────────────────────────────────
+  window.startEditDollar = function(cell, ticker, currentVal){
+    if(cell.querySelector("input")) return;  // already editing
+    var inp = document.createElement("input");
+    inp.type = "number"; inp.min = "0"; inp.step = "100";
+    inp.className = "pb-dollar-input";
+    inp.value = currentVal;
+    cell.innerHTML = "";
+    cell.appendChild(inp);
+    inp.focus(); inp.select();
+    inp.addEventListener("keydown", function(e){
+      if(e.key==="Enter"){ e.preventDefault(); commitDollarEdit(cell, ticker, inp); }
+      if(e.key==="Escape"){ holdingsCache.forEach(function(h){ if(h.ticker===ticker) cell.textContent = fmt$(h.dollar_amount); }); }
+    });
+    inp.addEventListener("blur", function(){ commitDollarEdit(cell, ticker, inp); });
+  };
+
+  function commitDollarEdit(cell, ticker, inp){
+    var val = parseFloat(inp.value);
+    if(!val || val <= 0){
+      holdingsCache.forEach(function(h){ if(h.ticker===ticker) cell.textContent = fmt$(h.dollar_amount); });
+      return;
+    }
+    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/holdings", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ticker:ticker, dollar_amount:val})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){ showError(d.error); return; }
+      holdingsCache.forEach(function(h){ if(h.ticker===ticker) h.dollar_amount = val; });
+      renderHoldingsTable(holdingsCache, metricsCache);
+    }).catch(function(e){ showError("Request failed: " + e); });
+  }
+
+  // ── Rename portfolio ───────────────────────────────────────────────────────
+  window.startRename = function(){
+    var inp = document.getElementById("pb-active-name");
+    inp.removeAttribute("readonly");
+    inp.focus(); inp.select();
+    document.getElementById("pb-name-hint").textContent = "Enter to save, Esc to cancel";
+  };
+  window.cancelRename = function(){
+    var inp = document.getElementById("pb-active-name");
+    inp.value = _renamePrevName;
+    inp.setAttribute("readonly","");
+    document.getElementById("pb-name-hint").textContent = "";
+  };
+  window.commitRename = function(){
+    var inp = document.getElementById("pb-active-name");
+    inp.setAttribute("readonly","");
+    document.getElementById("pb-name-hint").textContent = "";
+    var newName = inp.value.trim();
+    if(!newName || newName === _renamePrevName) { inp.value = _renamePrevName; return; }
+    if(!activePortfolioId) return;
+    fetch("/portfolio_builder/portfolios/"+activePortfolioId, {
+      method: "PATCH",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({name:newName, notes:""})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){ showError(d.error); inp.value = _renamePrevName; return; }
+      activePortfolioName = newName;
+      _renamePrevName = newName;
+      // Update sidebar
+      var item = document.getElementById("pb-item-"+activePortfolioId);
+      if(item){
+        var nameEl = item.querySelector(".pb-port-name");
+        if(nameEl) nameEl.textContent = newName;
+      }
+      var cmpItem = document.getElementById("pb-cmp-"+activePortfolioId);
+      if(cmpItem){
+        var span = cmpItem.querySelector("span");
+        if(span) span.textContent = newName;
+        var chk = cmpItem.querySelector("input");
+        if(chk) chk.setAttribute("data-name", newName);
+      }
+    }).catch(function(e){ showError("Rename failed: " + e); inp.value = _renamePrevName; });
+  };
+
+  function _updateSidebarCount(id, count){
+    var item = document.getElementById("pb-item-"+id);
+    if(item){
+      var countEl = item.querySelector(".pb-port-count");
+      if(countEl) countEl.textContent = count;
+    }
+  }
+
+  // ── Analyze ────────────────────────────────────────────────────────────────
+  window.analyzePortfolio = function(){
+    if(!activePortfolioId) return;
+    if(!holdingsCache.length){ alert("Add at least one holding first."); return; }
+    var bench = document.getElementById("pb-bench").value.trim().toUpperCase() || "SPY";
+
+    document.getElementById("pb-spinner").style.display = "flex";
+    document.getElementById("pb-grade-section").style.display = "none";
+    document.getElementById("pb-charts-section").style.display = "none";
+    document.getElementById("pb-error").style.display = "none";
+
+    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/analyze?period="+activePeriod+"&benchmark="+bench)
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        document.getElementById("pb-spinner").style.display = "none";
+        if(data.error){ showError(data.error); return; }
+
+        // Build metrics map
+        metricsCache = {};
+        (data.holdings || []).forEach(function(h){ metricsCache[h.ticker] = h; });
+
+        renderHoldingsTable(holdingsCache, metricsCache);
+        renderGradePanel(data.portfolio_metrics || {});
+        renderCharts(data);
+        syncScrollWidth();
+      }).catch(function(e){
+        document.getElementById("pb-spinner").style.display = "none";
+        showError("Error: " + e);
+      });
+  };
+
+  // ── Render grade panel ─────────────────────────────────────────────────────
+  function renderGradePanel(pm){
+    var g = pm.grade;
+    var section = document.getElementById("pb-grade-section");
+    if(!g){ section.style.display = "none"; return; }
+    section.style.display = "";
+
+    var ring = document.getElementById("pb-grade-ring");
+    ring.className = "pa-grade-ring " + gradeClass(g.overall);
+    document.getElementById("pb-grade-letter").textContent = g.overall;
+    document.getElementById("pb-grade-score").textContent = g.score + " / 100";
+
+    document.getElementById("pb-stat-holdings").textContent = pm.n_holdings || "--";
+    document.getElementById("pb-stat-effn").textContent = pm.effective_n || "--";
+
+    var mddEl = document.getElementById("pb-stat-mdd");
+    if(pm.max_drawdown !== null && pm.max_drawdown !== undefined){
+      mddEl.textContent = (parseFloat(pm.max_drawdown)*100).toFixed(1) + "%";
+      mddEl.style.color = parseFloat(pm.max_drawdown) < -0.25 ? "#ff5252" : "#00e89a";
+    } else { mddEl.textContent = "--"; }
+
+    document.getElementById("pb-stat-topwt").textContent = pm.top_weight !== undefined ? pm.top_weight + "%" : "--";
+    document.getElementById("pb-stat-annual-inc").textContent = pm.annual_income ? fmt$(pm.annual_income) : "--";
+    document.getElementById("pb-stat-monthly-inc").textContent = pm.monthly_income ? fmt$(pm.monthly_income) : "--";
+
+    // Breakdown bars
+    var bd = g.breakdown || [];
+    var html = "";
+    bd.forEach(function(row){
+      var barW = Math.max(0, Math.min(100, row.score));
+      var color = gradeColor(row.grade);
+      html += '<div class="pa-breakdown-row">'+
+        '<div class="pa-breakdown-label">'+_escHtml(row.category)+'</div>'+
+        '<div class="pa-breakdown-bar-bg"><div class="pa-breakdown-bar" style="width:'+barW+'%;background:'+color+'"></div></div>'+
+        '<div class="pa-breakdown-grade" style="color:'+color+'">'+row.grade+'</div>'+
+        '<div class="pa-breakdown-weight">'+row.weight+'%</div>'+
+        '</div>';
+    });
+    document.getElementById("pb-grade-breakdown").innerHTML = html;
+  }
+
+  // ── Render charts ──────────────────────────────────────────────────────────
+  function renderCharts(data){
+    var holdings = data.holdings || [];
+    var validHoldings = holdings.filter(function(h){ return h.annual_ret !== null && h.annual_ret !== undefined; });
+    if(!validHoldings.length){ document.getElementById("pb-charts-section").style.display = "none"; return; }
+    document.getElementById("pb-charts-section").style.display = "";
+
+    // Risk vs Return scatter
+    var scatterEl = document.getElementById("pb-scatter-chart");
+    Plotly.purge(scatterEl);
+    var xVol = validHoldings.map(function(h){ return h.annual_vol; });
+    var yRet = validHoldings.map(function(h){ return h.annual_ret; });
+    var sizes = validHoldings.map(function(h){ return Math.max(8, Math.min(44, (h.weight_pct||1) * 2.8)); });
+    var colors = yRet.map(function(v){ return v >= 0 ? "#00e89a" : "#ff5252"; });
+    var texts = validHoldings.map(function(h){
+      return h.ticker+"<br>Return: "+(h.annual_ret!==null?h.annual_ret+"%":"N/A")+
+             "<br>Vol: "+(h.annual_vol!==null?h.annual_vol+"%":"N/A")+
+             "<br>Weight: "+(h.weight_pct||0)+"%"+
+             "<br>Sharpe: "+(h.sharpe!==null?h.sharpe:"N/A");
+    });
+    Plotly.newPlot(scatterEl, [{
+      type: "scatter",
+      x: xVol, y: yRet,
+      text: validHoldings.map(function(h){ return h.ticker; }),
+      customdata: texts,
+      hovertemplate: "%{customdata}<extra></extra>",
+      mode: "markers+text", textposition: "top center",
+      textfont: {color:"#aaa", size:9},
+      marker: {color:colors, size:sizes, line:{color:"#333",width:1}, opacity:0.85}
+    }], {
+      title: {text:"Risk vs Return  (bubble = portfolio weight)", font:{color:"#ddd",size:13}},
+      xaxis: {title:"Annualized Volatility (%)", color:"#888", gridcolor:"#1a1a2e", zeroline:false},
+      yaxis: {title:"Annualized Return (%)", color:"#888", gridcolor:"#1a1a2e", zeroline:true, zerolinecolor:"#444"},
+      paper_bgcolor:"#0a0a1a", plot_bgcolor:"#0a0a1a",
+      margin:{t:45,r:20,b:55,l:60}
+    }, {responsive:true});
+
+    // Correlation heatmap
+    var corrEl = document.getElementById("pb-corr-chart");
+    Plotly.purge(corrEl);
+    if(data.correlation && data.correlation.labels.length > 1){
+      var labels = data.correlation.labels;
+      var matrix = data.correlation.matrix;
+      var flatText = [];
+      for(var i=0;i<labels.length;i++){
+        var row=[];
+        for(var j=0;j<labels.length;j++) row.push(labels[i]+"/"+labels[j]+": "+matrix[i][j].toFixed(2));
+        flatText.push(row);
+      }
+      Plotly.newPlot(corrEl, [{
+        type:"heatmap", x:labels, y:labels, z:matrix,
+        colorscale:[[0,"#d32f2f"],[0.5,"#111124"],[1,"#00e89a"]],
+        zmin:-1, zmax:1,
+        text:flatText, hovertemplate:"%{text}<extra></extra>",
+        showscale:true, colorbar:{tickfont:{color:"#888"},len:0.8}
+      }], {
+        title:{text:"Pairwise Correlation Matrix", font:{color:"#ddd",size:13}},
+        xaxis:{color:"#888", tickangle:-45, tickfont:{size:9}},
+        yaxis:{color:"#888", tickfont:{size:9}, autorange:"reversed"},
+        paper_bgcolor:"#0a0a1a", plot_bgcolor:"#0a0a1a",
+        margin:{t:45,r:60,b:90,l:90}
+      }, {responsive:true});
+    } else {
+      corrEl.innerHTML = '<p style="color:#555;text-align:center;padding:3rem;font-size:0.85rem">Need 2+ tickers for correlation heatmap.</p>';
+    }
+
+    // Drawdown
+    var ddEl = document.getElementById("pb-drawdown-chart");
+    Plotly.purge(ddEl);
+    if(data.drawdown_series && data.drawdown_series.dates.length){
+      var dd = data.drawdown_series;
+      Plotly.newPlot(ddEl, [{
+        x:dd.dates, y:dd.values, fill:"tozeroy",
+        fillcolor:"rgba(255,82,82,0.15)", line:{color:"#ff5252",width:1.5},
+        mode:"lines", name:"Drawdown",
+        hovertemplate:"%{x}: %{y:.2f}%<extra></extra>"
+      }], {
+        title:{text:"Portfolio Drawdown (weighted)", font:{color:"#ddd",size:13}},
+        xaxis:{color:"#888", gridcolor:"#1a1a2e"},
+        yaxis:{color:"#888", gridcolor:"#1a1a2e", tickformat:".1f", ticksuffix:"%"},
+        paper_bgcolor:"#0a0a1a", plot_bgcolor:"#0a0a1a",
+        margin:{t:45,r:20,b:40,l:60},
+        shapes:[{type:"line", x0:dd.dates[0], x1:dd.dates[dd.dates.length-1],
+                 y0:0, y1:0, line:{color:"#444",width:1}}]
+      }, {responsive:true});
+    }
+  }
+
+  // ── Comparison ─────────────────────────────────────────────────────────────
+  window.runComparison = function(){
+    var checked = [];
+    document.querySelectorAll(".pb-compare-chk:checked").forEach(function(el){
+      checked.push(parseInt(el.value));
+    });
+    if(checked.length < 2){ alert("Select at least 2 portfolios to compare."); return; }
+
+    var period = document.getElementById("pb-compare-period").value;
+    document.getElementById("pb-comp-section").style.display = "";
+
+    var compSection = document.getElementById("pb-comp-section");
+    compSection.scrollIntoView({behavior:"smooth", block:"start"});
+
+    var errEl = document.getElementById("pb-comp-error");
+    errEl.style.display = "none";
+    document.getElementById("pb-radar-chart").innerHTML = '<div class="pb-spinner-wrap" style="display:flex;padding:3rem;justify-content:center"><div class="pb-spinner"></div></div>';
+    document.getElementById("pb-income-chart").innerHTML = "";
+    document.getElementById("pb-comp-body").innerHTML = "";
+
+    fetch("/portfolio_builder/compare", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({portfolio_ids: checked, period: period, benchmark: "SPY"})
+    }).then(function(r){ return r.json(); })
+    .then(function(data){
+      if(data.error){ errEl.textContent = data.error; errEl.style.display = "block"; return; }
+      var ports = data.portfolios || [];
+      if(!ports.length){ errEl.textContent = "No data returned — check that the selected portfolios have holdings."; errEl.style.display = "block"; return; }
+      renderComparisonCharts(ports);
+      renderComparisonTable(ports);
+    }).catch(function(e){
+      errEl.textContent = "Request failed: " + e; errEl.style.display = "block";
+      document.getElementById("pb-radar-chart").innerHTML = "";
+    });
+  };
+
+  function renderComparisonCharts(ports){
+    var palette = ["#7ecfff","#00e89a","#f9a825","#ff8a50","#c084fc","#38bdf8","#fb923c"];
+
+    // ── Radar chart ─────────────────────────────────────────────────────────
+    var radarEl = document.getElementById("pb-radar-chart");
+    Plotly.purge(radarEl);
+    radarEl.innerHTML = "";
+    var axes = ["Sharpe","Sortino","Calmar","Omega","Max DD","Dn Capture","Diversification"];
+    var keyMap = ["sharpe","sortino","calmar","omega","max_drawdown","down_capture","diversification"];
+
+    var traces = ports.map(function(p, i){
+      var scores = keyMap.map(function(k){ return p.breakdown_scores && p.breakdown_scores[k] !== null ? p.breakdown_scores[k] : 0; });
+      scores.push(scores[0]); // close the shape
+      return {
+        type: "scatterpolar",
+        r: scores,
+        theta: axes.concat([axes[0]]),
+        fill: "toself",
+        fillcolor: palette[i % palette.length].replace(")", ",0.15)").replace("rgb","rgba").replace("#", "rgba(").replace(",0.15)","") + (palette[i%palette.length].startsWith("#") ? ("," + parseInt(palette[i%palette.length].slice(1,3),16)+","+parseInt(palette[i%palette.length].slice(3,5),16)+","+parseInt(palette[i%palette.length].slice(5,7),16)+",0.12)").replace("rgba(,","rgba(") : ""),
+        line: {color: palette[i % palette.length], width: 2},
+        name: p.name,
+        hovertemplate: "<b>"+_escHtml(p.name)+"</b><br>%{theta}: %{r:.1f}<extra></extra>"
+      };
+    });
+
+    // Fix fillcolor — just use opacity approach cleanly
+    traces = ports.map(function(p, i){
+      var scores = keyMap.map(function(k){ return p.breakdown_scores && p.breakdown_scores[k] !== null ? p.breakdown_scores[k] : 0; });
+      scores.push(scores[0]);
+      return {
+        type: "scatterpolar",
+        r: scores,
+        theta: axes.concat([axes[0]]),
+        fill: "toself",
+        opacity: 0.8,
+        line: {color: palette[i % palette.length], width: 2},
+        name: p.name,
+        hovertemplate: "<b>"+_escHtml(p.name)+"</b><br>%{theta}: %{r:.1f}<extra></extra>"
+      };
+    });
+
+    Plotly.newPlot(radarEl, traces, {
+      polar: {
+        bgcolor: "#0a0a1a",
+        radialaxis: {visible:true, range:[0,100], color:"#555", gridcolor:"#1e1e3a", tickfont:{size:9,color:"#666"}},
+        angularaxis: {color:"#aaa", tickfont:{size:10,color:"#bbb"}}
+      },
+      title: {text:"Metric Scores by Portfolio (0–100)", font:{color:"#ddd",size:13}},
+      paper_bgcolor:"#0a0a1a",
+      legend: {font:{color:"#ccc",size:11}, bgcolor:"#111124"},
+      margin: {t:50,r:40,b:40,l:40}
+    }, {responsive:true});
+
+    // ── Monthly income bar chart ──────────────────────────────────────────────
+    var incEl = document.getElementById("pb-income-chart");
+    Plotly.purge(incEl);
+    var names = ports.map(function(p){ return p.name; });
+    var incomes = ports.map(function(p){ return p.monthly_income || 0; });
+    Plotly.newPlot(incEl, [{
+      type: "bar",
+      x: names,
+      y: incomes,
+      text: incomes.map(function(v){ return fmt$(v); }),
+      textposition: "outside",
+      textfont: {color:"#aaa", size:11},
+      marker: {
+        color: ports.map(function(_, i){ return palette[i % palette.length]; }),
+        line: {color:"#333", width:1}
+      },
+      hovertemplate: "<b>%{x}</b><br>Monthly Income: %{text}<extra></extra>"
+    }], {
+      title: {text:"Estimated Monthly Income", font:{color:"#ddd",size:13}},
+      xaxis: {color:"#888", tickangle: names.length > 4 ? -30 : 0},
+      yaxis: {color:"#888", gridcolor:"#1a1a2e", tickprefix:"$", tickformat:",.0f"},
+      paper_bgcolor:"#0a0a1a", plot_bgcolor:"#0a0a1a",
+      margin:{t:45,r:20,b:80,l:70}
+    }, {responsive:true});
+  }
+
+  function renderComparisonTable(ports){
+    var body = document.getElementById("pb-comp-body");
+    var html = "";
+    ports.forEach(function(p){
+      var gc = gradeColor(p.grade);
+      var mdd = p.max_drawdown !== null && p.max_drawdown !== undefined ? (parseFloat(p.max_drawdown)*100).toFixed(1)+"%" : "N/A";
+      html += '<tr>';
+      html += '<td style="text-align:left;font-weight:600;color:#ddd">'+_escHtml(p.name)+'</td>';
+      html += '<td><span style="font-weight:700;color:'+gc+'">'+p.grade+'</span></td>';
+      html += '<td>'+p.score+'</td>';
+      html += '<td style="color:#00e89a">'+fmt$(p.monthly_income)+'</td>';
+      html += '<td>'+colorMetric(p.sharpe,"sharpe")+'</td>';
+      html += '<td>'+colorMetric(p.sortino,"sortino")+'</td>';
+      html += '<td>'+colorMetric(p.calmar,"calmar")+'</td>';
+      html += '<td>'+colorMetric(p.omega,"omega")+'</td>';
+      html += '<td>'+mdd+'</td>';
+      html += '<td>'+fmtN(p.effective_n,1)+'</td>';
+      html += '</tr>';
+    });
+    body.innerHTML = html;
+  }
+
+  // Auto-load first portfolio if any exist
+  {% if portfolios %}
+  (function(){
+    var first = {{ portfolios[0].id }};
+    var firstName = {{ portfolios[0].name | tojson }};
+    loadPortfolio(first, firstName);
+  })();
+  {% endif %}
+
+})();
+</script>
+{% endblock %}
