@@ -59,10 +59,12 @@
     <div class="control-group">
         <label class="ctrl-label">Return Type</label>
         <div class="period-btns" id="mode-btns">
-            <button class="pbtn pbtn-active" data-mode="total">Return</button>
+            <button class="pbtn pbtn-active" data-mode="total">Total Return</button>
             <button class="pbtn" data-mode="price">Price Only</button>
-            <button class="pbtn pbtn-compare" data-mode="both">Return &amp; Price</button>
+            <button class="pbtn pbtn-pricediv" data-mode="pricediv">Price + Dividends</button>
+            <button class="pbtn pbtn-compare" data-mode="both">Total Return &amp; Price</button>
             <button class="pbtn pbtn-all3" data-mode="all3">All Three</button>
+            <button class="pbtn pbtn-all4" data-mode="all4">All Four</button>
         </div>
         <div class="mode-desc" id="mode-desc"></div>
     </div>
@@ -253,6 +255,9 @@
 .pbtn-year { color:#c8b4ff; border-color:#4a3a6a; }
 .pbtn-year:hover { background:#2a1a4a; color:#e0d0ff; }
 .pbtn-year.pbtn-active { background:#3a1a6a; color:#e0d0ff; border-color:#7a4aaa; }
+.pbtn-pricediv { color:#66ddaa; border-color:#2a5a3a; }
+.pbtn-pricediv:hover { background:#1a3a2a; color:#88eebb; }
+.pbtn-pricediv.pbtn-active { background:#1a4a3a; color:#88eebb; border-color:#3a8a5a; }
 .pbtn-compare { color:#ffcc66; border-color:#5a4a1a; }
 .pbtn-compare:hover { background:#2a2010; color:#ffe0a0; }
 .pbtn-compare.pbtn-active { background:#3a2d00; color:#ffe08a; border-color:#aa8a00; }
@@ -262,6 +267,9 @@
 .pbtn-all3 { color:#e091ff; border-color:#4a2a6a; }
 .pbtn-all3:hover { background:#2a1030; color:#eab0ff; }
 .pbtn-all3.pbtn-active { background:#3a1060; color:#eab0ff; border-color:#7a40aa; }
+.pbtn-all4 { color:#ff9966; border-color:#5a3a2a; }
+.pbtn-all4:hover { background:#2a1a10; color:#ffb088; }
+.pbtn-all4.pbtn-active { background:#3a2010; color:#ffb088; border-color:#aa6633; }
 .pbtn-divider { color:#334; padding:0 .2rem; line-height:1; align-self:center; font-size:1.1rem; }
 .mode-desc {
     font-size:.76rem; color:#8899aa; margin-top:.35rem; line-height:1.35;
@@ -366,7 +374,7 @@ td.num { text-align:right; }
     riNum.addEventListener('change',    function() { loadChart(); });
 
     function updateReinvestDim() {
-        if (activeMode === 'price') {
+        if (activeMode === 'price' || activeMode === 'pricediv') {
             riGroup.classList.add('dimmed');
         } else {
             riGroup.classList.remove('dimmed');
@@ -377,8 +385,10 @@ td.num { text-align:right; }
     var MODE_DESCS = {
         total:  'Slider blends between Price Only (0%) and full DRIP total return (100%). See how much dividends affect your return.',
         price:  'Share price change only — all dividends are ignored completely.',
+        pricediv: 'Price change plus dividends received as cash — no reinvestment or compounding.',
         both:  'Overlays blended return (slider %) and Price Only on the same chart. The gap shows the dividend contribution.',
         all3:  'Price Only (dotted), blended slider % (dashed), and 100% DRIP reference (solid). At 100% the middle line is skipped.',
+        all4:  'All four lines: Price Only (dotted), Price + Cash Dividends (long dash), custom reinvest % (dashed, if not 0 or 100), and 100% DRIP (solid).',
     };
     function updateModeDesc() {
         modeDescEl.textContent = MODE_DESCS[activeMode] || '';
@@ -586,16 +596,20 @@ td.num { text-align:right; }
             var extra = isDb ? 'db-card' : retClass(t.ret);
 
             var retSub;
-            if (isDb)                     retSub = 'DB snapshot';
-            else if (s.mode === 'price')  retSub = 'price only';
-            else if (s.mode === 'all3')   retSub = '100% DRIP (solid)';
-            else                          retSub = ri + '% reinvest';
+            if (isDb)                        retSub = 'DB snapshot';
+            else if (s.mode === 'price')     retSub = 'price only';
+            else if (s.mode === 'pricediv')  retSub = 'price + cash divs';
+            else if (s.mode === 'all3' || s.mode === 'all4') retSub = '100% DRIP (solid)';
+            else                             retSub = ri + '% reinvest';
             html += card(t.label + ' Return', fmt(t.ret, '%'), retSub, extra);
 
-            // All Three mode — show all 3 return lines as cards
-            if (s.mode === 'all3') {
+            // All Three / All Four mode — show all return lines as cards
+            if (s.mode === 'all3' || s.mode === 'all4') {
+                if (s.mode === 'all4' && t.pricediv_ret !== null && t.pricediv_ret !== undefined) {
+                    html += card(t.label + ' Price+Div', fmt(t.pricediv_ret, '%'), 'cash divs (long dash)', retClass(t.pricediv_ret));
+                }
                 html += card(t.label + ' Price', fmt(t.price_ret, '%'), 'price only (dotted)', retClass(t.price_ret));
-                if (ri < 100 && t.custom_ret !== null && t.custom_ret !== undefined) {
+                if (ri > 0 && ri < 100 && t.custom_ret !== null && t.custom_ret !== undefined) {
                     html += card(t.label + ' ' + ri + '% Reinvest', fmt(t.custom_ret, '%'), 'custom (dashed)', retClass(t.custom_ret));
                 }
                 html += card(t.label + ' DRIP Div', fmt(t.div_contrib, '%'), 'DRIP div portion',

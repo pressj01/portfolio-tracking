@@ -1601,16 +1601,21 @@ def single_etf_data():
     ]
     _DASH_CYCLE = ["solid", "solid", "dash", "dash", "dot", "dot", "dashdot"]
 
+    # Price+Div gets its own color per slot (warm tones, distinct from total/price)
+    _PRICEDIV_COLORS = ["#66ddaa", "#e0c050", "#e88acc", "#c0aaee", "#e0a070", "#66c8d8", "#b8d870", "#e8a0c0"]
+
     SLOT_STYLES = {}
     for _si, (_sym, _sk) in enumerate(slots):
         if _si == 0:
             # First ticker always gets the primary blue style
-            SLOT_STYLES[_sk] = dict(color="#7ecfff", price_color="#5ba8d0", line_dash="solid", width=3)
+            SLOT_STYLES[_sk] = dict(color="#7ecfff", price_color="#5ba8d0",
+                                    pricediv_color="#66ddaa", line_dash="solid", width=3)
         else:
             _ci = (_si - 1) % len(_EXTRA_COLORS)
             SLOT_STYLES[_sk] = dict(
                 color=_EXTRA_COLORS[_ci][0],
                 price_color=_EXTRA_COLORS[_ci][1],
+                pricediv_color=_PRICEDIV_COLORS[(_si) % len(_PRICEDIV_COLORS)],
                 line_dash=_DASH_CYCLE[(_si - 1) % len(_DASH_CYCLE)],
                 width=2.5,
             )
@@ -1634,10 +1639,12 @@ def single_etf_data():
         return c
 
     def dl_income(symbols):
-        """Download with actions=True to get Close + Dividends (unadjusted)."""
+        """Download with actions=True to get Close + Dividends (unadjusted).
+        Always uses daily interval so every individual dividend payment is
+        captured for accurate reinvestment simulation."""
         sym_str = " ".join(symbols) if isinstance(symbols, list) else symbols
         raw = __import__("yfinance").download(
-            sym_str, **yf_kwargs, interval=yf_interval,
+            sym_str, **yf_kwargs, interval="1d",
             progress=False, auto_adjust=False, actions=True,
         )
         if raw.empty:
@@ -1692,19 +1699,34 @@ def single_etf_data():
         peak = s.expanding().max()
         return round(float(((s - peak) / peak * 100).min()), 4)
 
-    def blend_price_drip(price_norm, drip_norm, frac):
-        """Blend between price-only (frac=0) and full DRIP (frac=1).
-        Both inputs are normalized series (100 = start).
-        Returns blended normalized series."""
-        if price_norm is None or drip_norm is None:
-            return drip_norm if frac >= 0.5 else price_norm
-        # Align to common index
-        common = price_norm.index.intersection(drip_norm.index)
-        if len(common) < 2:
+    def blend_price_drip(close_series, divs_series, frac, track_cash=True):
+        """Simulate partial reinvestment.  frac=0 → price+cash divs,
+        frac=1 → full DRIP.  In between: frac of each div buys new
+        shares (which also appreciate), (1-frac) kept as cash.
+        track_cash=True: total wealth (shares*price + cash from un-reinvested divs)
+        track_cash=False: invested value only (shares*price, un-reinvested divs withdrawn)
+        Returns normalized series (100 = start)."""
+        if close_series is None or len(close_series.dropna()) < 2:
             return None
-        p = price_norm.reindex(common)
-        d = drip_norm.reindex(common)
-        return (p * (1 - frac) + d * frac).round(4)
+        close = close_series.dropna()
+        if divs_series is not None:
+            divs = divs_series.reindex(close.index, fill_value=0.0)
+        else:
+            divs = pd.Series(0.0, index=close.index)
+        shares = 1.0
+        cash_divs = 0.0
+        vals = []
+        p0 = close.iloc[0]
+        for i in range(len(close)):
+            d = divs.iloc[i]
+            if d > 0:
+                reinvest_amt = d * shares * frac
+                if track_cash:
+                    cash_divs += d * shares * (1 - frac)
+                shares += reinvest_amt / close.iloc[i]
+            vals.append(shares * close.iloc[i] + cash_divs)
+        result = pd.Series(vals, index=close.index)
+        return ((result / result.iloc[0]) * 100).round(4)
 
     try:
         import yfinance as yf  # noqa
@@ -1739,10 +1761,15 @@ def single_etf_data():
 
         # ── Download price data for all active tickers at once ───────────────
         all_syms    = [sym for sym, _ in slots]
-        # Return modes need adjusted (DRIP); blending also needs unadjusted (price-only)
-        close_adj   = dl(all_syms, adj=True)  if mode != "price" else pd.DataFrame()
-        need_unadj  = mode in ("price", "both", "all3") or (mode == "total" and reinvest_pct < 100)
-        close_unadj = dl(all_syms, adj=False) if need_unadj else pd.DataFrame()
+        # Always download unadjusted close (used for price-only and blend_price_drip)
+        close_unadj = dl(all_syms, adj=False)
+        # Always download dividends for all modes except price-only
+        # (auto_adjust=True is unreliable for many ETFs, so we use
+        #  blend_price_drip with real dividend data for all total-return calcs)
+        if mode != "price":
+            _income_close, _income_divs = dl_income(all_syms)
+        else:
+            _income_close, _income_divs = pd.DataFrame(), pd.DataFrame()
 
         fig          = go.Figure()
         stats_list   = []   # per-ticker stat dicts
@@ -1751,7 +1778,7 @@ def single_etf_data():
         # Reference date span — from first ticker that has usable time-series data
         ref_dates = None
         for sym, _ in slots:
-            for df in [close_adj, close_unadj]:
+            for df in [close_unadj, _income_close]:
                 if df.empty:
                     continue
                 s = get_col(df, sym)
@@ -1764,16 +1791,11 @@ def single_etf_data():
         # ── Per-ticker trace building ────────────────────────────────────────
         for sym, slot in slots:
             sty     = SLOT_STYLES[slot]
-            s_adj   = get_col(close_adj,   sym) if not close_adj.empty   else None
             s_unadj = get_col(close_unadj, sym) if not close_unadj.empty else None
-            has_adj   = s_adj   is not None and len(s_adj)   >= 2
             has_unadj = s_unadj is not None and len(s_unadj) >= 2
 
             # Determine if we need Yahoo data and whether it's missing
-            _need_adj   = mode in ("total", "both", "all3")
-            _need_unadj = mode in ("price", "both", "all3") or (mode == "total" and reinvest_pct < 100)
-
-            if ((_need_adj and not has_adj) or (_need_unadj and not has_unadj)):
+            if not has_unadj:
                 snap = db_snapshot(sym)
                 if snap is None:
                     stats_list.append({
@@ -1787,9 +1809,9 @@ def single_etf_data():
                 any_db  = True
                 x_span  = [ref_dates[0], ref_dates[-1]] if ref_dates else ["Start", "Now"]
 
-                if mode in ("total", "both", "all3"):
+                if mode in ("total", "pricediv", "both", "all3", "all4"):
                     lvl = 100 + snap["total_ret"]
-                    _lbl = "Total"
+                    _lbl = "Total" if mode != "pricediv" else "Price+Div"
                     fig.add_trace(go.Scatter(
                         x=x_span, y=[lvl, lvl],
                         name=f"{sym} {_lbl} (DB)",
@@ -1799,7 +1821,7 @@ def single_etf_data():
                         hovertemplate=(f"<b>{sym} DB snapshot</b>  Total: "
                                        f"{snap['total_ret']:+.2f}%<extra>all-time</extra>"),
                     ))
-                if mode in ("price", "both", "all3"):
+                if mode in ("price", "both", "all3", "all4"):
                     lvl = 100 + snap["price_ret"]
                     fig.add_trace(go.Scatter(
                         x=x_span, y=[lvl, lvl],
@@ -1813,9 +1835,9 @@ def single_etf_data():
 
                 stats_list.append({
                     "label":       sym,
-                    "ret":         snap["total_ret"] if mode != "price" else snap["price_ret"],
-                    "price_ret":   snap["price_ret"] if mode in ("both", "all3") else None,
-                    "div_contrib": snap["div_pct"]   if mode in ("both", "all3") else None,
+                    "ret":         snap["total_ret"] if mode not in ("price",) else snap["price_ret"],
+                    "price_ret":   snap["price_ret"] if mode in ("both", "all3", "all4") else None,
+                    "div_contrib": snap["div_pct"]   if mode in ("pricediv", "both", "all3", "all4") else None,
                     "ann":  None, "mdd": None,
                     "note": "DB snapshot — no Yahoo price history",
                 })
@@ -1823,13 +1845,9 @@ def single_etf_data():
 
             # ── Yahoo data is available — add traces ─────────────────────────
             if mode == "total":
-                n_adj = norm(s_adj)
-                if reinvest_pct == 100:
-                    n = n_adj
-                else:
-                    s_unadj_t = get_col(close_unadj, sym) if not close_unadj.empty else None
-                    n_unadj_t = norm(s_unadj_t) if s_unadj_t is not None and len(s_unadj_t.dropna()) >= 2 else None
-                    n = blend_price_drip(n_unadj_t, n_adj, reinvest_frac)
+                s_ic = get_col(_income_close, sym)
+                s_id = get_col(_income_divs,  sym)
+                n = blend_price_drip(s_ic if s_ic is not None else s_unadj, s_id, reinvest_frac)
                 if n is None:
                     continue
                 ri_label = f" ({reinvest_pct}%)" if reinvest_pct < 100 else ""
@@ -1842,12 +1860,49 @@ def single_etf_data():
                                    f"<extra>Return ({reinvest_pct}%)</extra>"),
                 ))
                 ret_val = pct_ret(n)
-                drip_ret = pct_ret(n_adj)
                 stats_list.append({
                     "label": sym, "ret": ret_val,
                     "price_ret": None,
                     "div_contrib": None,
-                    "ann": ann_ret(n, s_adj), "mdd": max_dd(s_adj), "note": None,
+                    "ann": ann_ret(n, s_unadj), "mdd": max_dd(n), "note": None,
+                })
+
+            elif mode == "pricediv":
+                # Price + Dividends (cash, no reinvestment)
+                s_close_pd = get_col(_income_close, sym)
+                s_divs_pd  = get_col(_income_divs,  sym)
+                if s_close_pd is None or len(s_close_pd.dropna()) < 2:
+                    # Fall back to unadjusted close if dl_income didn't work
+                    s_close_pd = s_unadj
+                if s_close_pd is None or len(s_close_pd.dropna()) < 2:
+                    continue
+                s_close_pd = s_close_pd.dropna()
+                if s_divs_pd is not None:
+                    s_divs_pd = s_divs_pd.reindex(s_close_pd.index, fill_value=0.0)
+                    cumul_divs = s_divs_pd.cumsum()
+                else:
+                    cumul_divs = pd.Series(0.0, index=s_close_pd.index)
+                total_val = s_close_pd + cumul_divs
+                n = ((total_val / total_val.iloc[0]) * 100).round(4)
+                # Also compute price-only for div contribution stat
+                n_price = norm(s_close_pd)
+                fig.add_trace(go.Scatter(
+                    x=[str(d)[:10] for d in n.index], y=n.tolist(),
+                    name=f"{sym} (Price+Div)",
+                    line=dict(color=sty["pricediv_color"], width=sty["width"],
+                              dash=sty["line_dash"]),
+                    hovertemplate=(f"<b>{sym} Price+Div</b>: %{{y:.2f}}%<br>%{{x}}"
+                                   f"<extra>Price + Cash Divs</extra>"),
+                ))
+                ret_val = pct_ret(n)
+                pr = pct_ret(n_price)
+                stats_list.append({
+                    "label": sym, "ret": ret_val,
+                    "price_ret": pr,
+                    "div_contrib": (round(ret_val - pr, 4)
+                                    if ret_val is not None and pr is not None else None),
+                    "ann": ann_ret(n, s_close_pd), "mdd": max_dd(s_close_pd),
+                    "note": None,
                 })
 
             elif mode == "price":
@@ -1868,10 +1923,15 @@ def single_etf_data():
                     "ann": ann_ret(n, s_unadj), "mdd": max_dd(s_unadj), "note": None,
                 })
 
-            elif mode == "all3":
-                # All three: Price Only (dotted) + Custom Blend (dashed) + 100% DRIP (solid)
-                n_adj   = norm(s_adj)   if has_adj   else None
+            elif mode in ("all3", "all4"):
+                # all3: Price Only (dotted) + Custom Blend (dashed) + 100% DRIP (solid)
+                # all4: adds Price+Dividends (long dash) between Price and Custom Blend
                 n_unadj = norm(s_unadj) if has_unadj else None
+                _ic = get_col(_income_close, sym)
+                _id = get_col(_income_divs,  sym)
+
+                # 100% DRIP via blend_price_drip (uses real dividend data, not auto_adjust)
+                n_drip = blend_price_drip(_ic if _ic is not None else s_unadj, _id, 1.0)
 
                 # 1) Price-only trace (bottom — dotted)
                 if n_unadj is not None:
@@ -1880,49 +1940,79 @@ def single_etf_data():
                         name=f"{sym} (Price)",
                         line=dict(color=sty["price_color"],
                                   width=max(sty["width"] - 1, 1.5), dash="dot"),
-                        hovertemplate=(f"<b>{sym} Price</b>: %{{y:.2f}}<br>%{{x}}"
+                        hovertemplate=(f"<b>{sym} Price</b>: %{{y:.2f}}%<br>%{{x}}"
                                        f"<extra></extra>"),
                     ))
 
-                # 2) Custom blend trace (middle — dashed) — skip if 100%
-                n_blend = blend_price_drip(n_unadj, n_adj, reinvest_frac)
-                if reinvest_pct < 100 and n_blend is not None:
+                # 2) Price + Cash Dividends trace (all4 only — long dash)
+                n_pricediv = None
+                pricediv_ret = None
+                if mode == "all4":
+                    s_close_pd = _ic if _ic is not None else s_unadj
+                    s_divs_pd  = _id
+                    if s_close_pd is not None and len(s_close_pd.dropna()) >= 2:
+                        s_close_pd = s_close_pd.dropna()
+                        if s_divs_pd is not None:
+                            s_divs_pd = s_divs_pd.reindex(s_close_pd.index, fill_value=0.0)
+                            cumul_divs = s_divs_pd.cumsum()
+                        else:
+                            cumul_divs = pd.Series(0.0, index=s_close_pd.index)
+                        total_val = s_close_pd + cumul_divs
+                        n_pricediv = ((total_val / total_val.iloc[0]) * 100).round(4)
+                        pricediv_ret = pct_ret(n_pricediv)
+                        fig.add_trace(go.Scatter(
+                            x=[str(d)[:10] for d in n_pricediv.index], y=n_pricediv.tolist(),
+                            name=f"{sym} (Price+Div)",
+                            line=dict(color=sty["pricediv_color"],
+                                      width=max(sty["width"] - 0.5, 1.5), dash="longdash"),
+                            hovertemplate=(f"<b>{sym} Price+Div</b>: %{{y:.2f}}%<br>%{{x}}"
+                                           f"<extra></extra>"),
+                        ))
+
+                # 3) Custom blend trace (dashed) — skip if 0% or 100%
+                # track_cash=False: shows invested-only value (divs not reinvested
+                # are treated as withdrawn), ensuring this line is always between
+                # Price Only and 100% DRIP for clear visual separation.
+                n_blend = blend_price_drip(_ic if _ic is not None else s_unadj, _id, reinvest_frac, track_cash=False)
+                if reinvest_pct > 0 and reinvest_pct < 100 and n_blend is not None:
                     fig.add_trace(go.Scatter(
                         x=[str(d)[:10] for d in n_blend.index], y=n_blend.tolist(),
                         name=f"{sym} ({reinvest_pct}%)",
                         line=dict(color=sty["color"], width=sty["width"], dash="dash"),
-                        hovertemplate=(f"<b>{sym} {reinvest_pct}%</b>: %{{y:.2f}}<br>%{{x}}"
+                        hovertemplate=(f"<b>{sym} {reinvest_pct}%</b>: %{{y:.2f}}%<br>%{{x}}"
                                        f"<extra></extra>"),
                     ))
 
-                # 3) 100% DRIP reference trace (top — solid)
-                if n_adj is not None:
+                # 4) 100% DRIP reference trace (top — solid)
+                if n_drip is not None:
                     fig.add_trace(go.Scatter(
-                        x=[str(d)[:10] for d in n_adj.index], y=n_adj.tolist(),
+                        x=[str(d)[:10] for d in n_drip.index], y=n_drip.tolist(),
                         name=f"{sym} (100% DRIP)",
                         line=dict(color=sty["color"], width=sty["width"],
                                   dash="solid"),
-                        hovertemplate=(f"<b>{sym} 100% DRIP</b>: %{{y:.2f}}<br>%{{x}}"
+                        hovertemplate=(f"<b>{sym} 100% DRIP</b>: %{{y:.2f}}%<br>%{{x}}"
                                        f"<extra></extra>"),
                     ))
 
-                tr = pct_ret(n_adj)
+                tr = pct_ret(n_drip)
                 pr = pct_ret(n_unadj)
                 custom_ret  = pct_ret(n_blend) if n_blend is not None else None
                 drip_div_c  = round(tr - pr, 4) if tr is not None and pr is not None else None
-                stats_list.append({
+                stat_entry = {
                     "label": sym,
                     "ret":         tr,          # 100% DRIP total
                     "price_ret":   pr,          # price only
                     "div_contrib": drip_div_c,  # DRIP div contribution
                     "custom_ret":  custom_ret,  # custom blend %
-                    "ann": ann_ret(n_adj, s_adj) if n_adj is not None else None,
-                    "mdd": max_dd(s_adj) if s_adj is not None else max_dd(s_unadj),
+                    "ann": ann_ret(n_drip, s_unadj) if n_drip is not None else None,
+                    "mdd": max_dd(n_drip) if n_drip is not None else max_dd(s_unadj),
                     "note": None,
-                })
+                }
+                if mode == "all4":
+                    stat_entry["pricediv_ret"] = pricediv_ret
+                stats_list.append(stat_entry)
 
             else:  # both — price-only + blended return
-                n_adj   = norm(s_adj)   if has_adj   else None
                 n_unadj = norm(s_unadj) if has_unadj else None
 
                 # Price-only trace first (drawn behind)
@@ -1935,8 +2025,10 @@ def single_etf_data():
                         hovertemplate=(f"<b>{sym} Price</b>: %{{y:.2f}}<br>%{{x}}"
                                        f"<extra></extra>"),
                     ))
-                # Blended return on top
-                n_blend = blend_price_drip(n_unadj, n_adj, reinvest_frac)
+                # Blended return on top (always use blend_price_drip with real divs)
+                _ic = get_col(_income_close, sym)
+                _id = get_col(_income_divs,  sym)
+                n_blend = blend_price_drip(_ic if _ic is not None else s_unadj, _id, reinvest_frac)
                 ri_label = f" ({reinvest_pct}%)" if reinvest_pct < 100 else ""
                 if n_blend is not None:
                     fig.add_trace(go.Scatter(
@@ -1954,8 +2046,8 @@ def single_etf_data():
                     "label": sym, "ret": tr, "price_ret": pr,
                     "div_contrib": (round(tr - pr, 4)
                                     if tr is not None and pr is not None else None),
-                    "ann": ann_ret(n_blend, s_adj) if n_blend is not None else None,
-                    "mdd": max_dd(s_adj) if has_adj else max_dd(s_unadj),
+                    "ann": ann_ret(n_blend, s_unadj) if n_blend is not None else None,
+                    "mdd": max_dd(n_blend) if n_blend is not None else max_dd(s_unadj),
                     "note": None,
                 })
 
@@ -1965,7 +2057,7 @@ def single_etf_data():
             from datetime import timedelta
             tol = timedelta(days=7)
             for sym, _ in slots:
-                for df in [close_adj, close_unadj]:
+                for df in [close_unadj, _income_close]:
                     if df.empty:
                         continue
                     s = get_col(df, sym)
@@ -1998,10 +2090,12 @@ def single_etf_data():
 
         # ── Chart layout ─────────────────────────────────────────────────────
         sym_list    = " | ".join(sym for sym, _ in slots)
-        ri_suffix   = f" ({reinvest_pct}% reinvest)" if reinvest_pct < 100 and mode != "price" else ""
+        ri_suffix   = f" ({reinvest_pct}% reinvest)" if reinvest_pct < 100 and mode not in ("price", "pricediv") else ""
         mode_suffix = {"total": "", "price": " — Price Only",
+                       "pricediv": " — Price + Cash Dividends",
                        "both": " — Return & Price",
-                       "all3": " — Price vs Custom vs DRIP"}
+                       "all3": " — Price vs Custom vs DRIP",
+                       "all4": " — All Four Modes"}
         title = f"{sym_list} — {period_label}{mode_suffix.get(mode, '')}{ri_suffix}"
         if any_db:
             title += "  ⚠ some tickers: DB snapshot"
@@ -2016,7 +2110,7 @@ def single_etf_data():
             hovermode="x unified",
             legend=dict(orientation="h", yanchor="bottom", y=1.02,
                         xanchor="right", x=1),
-            margin=dict(l=60, r=40, t=80, b=50),
+            margin=dict(l=60, r=80, t=80, b=50),
         )
         if any_db:
             fig.add_annotation(
@@ -2026,6 +2120,22 @@ def single_etf_data():
                 showarrow=False, font=dict(size=11, color="#8899aa"),
                 xanchor="center",
             )
+
+        # ── End-of-line return % annotations ─────────────────────────────────
+        for trace in fig.data:
+            if trace.y and len(trace.y) >= 2 and trace.x and len(trace.x) >= 2:
+                last_y = trace.y[-1] if isinstance(trace.y, list) else list(trace.y)[-1]
+                last_x = trace.x[-1] if isinstance(trace.x, list) else list(trace.x)[-1]
+                ret_pct = last_y - 100
+                sign = "+" if ret_pct >= 0 else ""
+                fig.add_annotation(
+                    x=last_x, y=last_y,
+                    text=f"<b>{sign}{ret_pct:.1f}%</b>",
+                    showarrow=False,
+                    xanchor="left", yanchor="middle",
+                    xshift=6,
+                    font=dict(size=10, color=trace.line.color if trace.line and trace.line.color else "#cdd9e5"),
+                )
 
         stats_out = {
             "tickers":      stats_list,
@@ -4957,6 +5067,15 @@ def portfolio_optimizer():
         """, conn, params=[pid])
     except Exception:
         df = pd.DataFrame()
+    # Load user-saved candidates from DB
+    try:
+        saved_df = pd.read_sql(
+            "SELECT ticker FROM dbo.swap_candidates WHERE profile_id = ? ORDER BY added_at",
+            conn, params=[pid]
+        )
+        saved_candidates = saved_df["ticker"].tolist()
+    except Exception:
+        saved_candidates = []
     conn.close()
     tickers = df["ticker"].tolist() if not df.empty else []
     portfolio_set = set(tickers)
@@ -4968,13 +5087,65 @@ def portfolio_optimizer():
                     "ticker": r["ticker"],
                     "shares": round(float(r["quantity"]), 4),
                 })
+    # Merge defaults with user-saved (defaults first, then user-added extras)
+    saved_set = set(saved_candidates)
+    default_set = set(SWAP_CANDIDATES)
+    user_only = [t for t in saved_candidates if t not in default_set]
     return render_template(
         "portfolio_optimizer.html",
         tickers=tickers,
         candidates=SWAP_CANDIDATES,
+        saved_candidates=saved_set,
+        user_only_candidates=user_only,
         portfolio_set=portfolio_set,
         db_holdings=db_holdings,
     )
+
+
+@app.route("/portfolio_optimizer/candidates", methods=["POST"])
+def swap_candidates_save():
+    """Save one or more tickers to the user's swap candidate list."""
+    pid = get_profile_id()
+    data = request.get_json(silent=True) or {}
+    tickers_raw = data.get("tickers", [])
+    if isinstance(tickers_raw, str):
+        tickers_raw = [tickers_raw]
+    tickers = [t.strip().upper() for t in tickers_raw if t.strip()]
+    if not tickers:
+        return jsonify({"error": "No tickers provided"}), 400
+    conn = get_connection()
+    cursor = conn.cursor()
+    saved = []
+    for ticker in tickers:
+        try:
+            cursor.execute("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM dbo.swap_candidates WHERE profile_id = ? AND ticker = ?
+                )
+                INSERT INTO dbo.swap_candidates (profile_id, ticker) VALUES (?, ?)
+            """, pid, ticker, pid, ticker)
+            saved.append(ticker)
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+    return jsonify({"saved": saved})
+
+
+@app.route("/portfolio_optimizer/candidates/<ticker>", methods=["DELETE"])
+def swap_candidates_delete(ticker):
+    """Remove a ticker from the user's swap candidate list."""
+    pid = get_profile_id()
+    ticker = ticker.strip().upper()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM dbo.swap_candidates WHERE profile_id = ? AND ticker = ?",
+        pid, ticker
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"deleted": ticker})
 
 
 @app.route("/portfolio_optimizer/data")
@@ -5236,7 +5407,7 @@ def portfolio_optimizer_data():
 
         all_dl = list(set(port_tickers + weak_tickers + cand_tickers + [benchmark]))
         try:
-            raw = yf.download(" ".join(all_dl), **yf_kwargs, progress=False, auto_adjust=True)
+            raw = yf.download(" ".join(all_dl), **yf_kwargs, progress=False, auto_adjust=True, actions=True)
             if raw.empty:
                 return jsonify({"error": "No price data returned."}), 500
         except Exception as e:
@@ -5244,9 +5415,15 @@ def portfolio_optimizer_data():
 
         if isinstance(raw.columns, pd.MultiIndex):
             close = raw["Close"].dropna(how="all")
+            dividends = raw["Dividends"].fillna(0) if "Dividends" in raw.columns.get_level_values(0) else pd.DataFrame(0, index=raw.index, columns=close.columns)
         else:
             close = raw[["Close"]].dropna(how="all")
             close.columns = [all_dl[0]]
+            if "Dividends" in raw.columns:
+                dividends = raw[["Dividends"]].fillna(0)
+                dividends.columns = [all_dl[0]]
+            else:
+                dividends = pd.DataFrame(0, index=raw.index, columns=[all_dl[0]])
 
         bench_close = close[benchmark] if benchmark in close.columns else None
         bench_ret = bench_close.pct_change().dropna() if bench_close is not None else None
@@ -5262,29 +5439,27 @@ def portfolio_optimizer_data():
         base_score = base_pm["grade"]["score"] if "grade" in base_pm else 0.0
         base_grade = base_pm["grade"]["overall"] if "grade" in base_pm else "--"
 
-        # Candidate yields (DB first, then yfinance fast_info, then full .info)
+        # Candidate yields — use DB yield_map first, then trailing dividend history (annualized)
+        # Calculate the span of the download in years for annualizing dividends
+        _div_span_days = (close.index[-1] - close.index[0]).days if len(close) >= 2 else 365
+        _div_span_years = max(_div_span_days / 365.25, 0.1)  # floor at ~5 weeks
+
         cand_yields = {}
         for c in cand_tickers:
             if c in yield_map:
                 cand_yields[c] = yield_map[c]
-            else:
-                dy = 0.0
+            elif c in close.columns and c in dividends.columns:
                 try:
-                    fi = yf.Ticker(c).fast_info
-                    dy = float(fi["dividend_yield"] or 0)
+                    div_series = dividends[c]
+                    total_divs = div_series[div_series > 0].sum()
+                    annual_divs = total_divs / _div_span_years
+                    last_price = close[c].dropna().iloc[-1] if len(close[c].dropna()) > 0 else 0
+                    dy = (annual_divs / last_price) if last_price > 0 else 0.0
+                    cand_yields[c] = min(dy, 0.50)  # clamp to 50% max
                 except Exception:
-                    dy = 0.0
-                if dy == 0.0:
-                    try:
-                        info = yf.Ticker(c).info
-                        dy = float(
-                            info.get("dividendYield") or
-                            info.get("trailingAnnualDividendYield") or
-                            info.get("yield") or 0
-                        )
-                    except Exception:
-                        dy = 0.0
-                cand_yields[c] = dy
+                    cand_yields[c] = 0.0
+            else:
+                cand_yields[c] = 0.0
 
         swaps_out = {}
         for wt in weak_tickers:
@@ -5381,6 +5556,128 @@ def portfolio_optimizer_data():
             "base_grade": base_grade,
             "portfolio_tickers_used": avail_port,
             "swaps": swaps_out,
+        })
+
+    # ── mode=eval_custom_swap ── evaluate a single custom ticker as swap for a weak ticker
+    elif mode == "eval_custom_swap":
+        weak_ticker = request.args.get("weak", "").strip().upper()
+        cand_ticker = request.args.get("candidate", "").strip().upper()
+        if not weak_ticker or not cand_ticker:
+            return jsonify({"error": "Both weak and candidate tickers are required."}), 400
+
+        all_dl = list(set(port_tickers + [weak_ticker, cand_ticker, benchmark]))
+        try:
+            raw = yf.download(" ".join(all_dl), **yf_kwargs, progress=False, auto_adjust=True, actions=True)
+            if raw.empty:
+                return jsonify({"error": "No price data returned."}), 500
+        except Exception as e:
+            return jsonify({"error": f"yfinance error: {str(e)}"}), 500
+
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"].dropna(how="all")
+            dividends = raw["Dividends"].fillna(0) if "Dividends" in raw.columns.get_level_values(0) else pd.DataFrame(0, index=raw.index, columns=close.columns)
+        else:
+            close = raw[["Close"]].dropna(how="all")
+            close.columns = [all_dl[0]]
+            if "Dividends" in raw.columns:
+                dividends = raw[["Dividends"]].fillna(0)
+                dividends.columns = [all_dl[0]]
+            else:
+                dividends = pd.DataFrame(0, index=raw.index, columns=[all_dl[0]])
+
+        if cand_ticker not in close.columns:
+            return jsonify({"error": f"No price data for {cand_ticker}."}), 400
+
+        bench_close = close[benchmark] if benchmark in close.columns else None
+        bench_ret = bench_close.pct_change().dropna() if bench_close is not None else None
+
+        avail_port = [t for t in port_tickers if t in close.columns and len(close[t].dropna()) >= 30]
+        if len(avail_port) < 2:
+            return jsonify({"error": "Not enough portfolio price data."}), 400
+
+        base_returns_df = close[avail_port].pct_change().dropna()
+        base_weights = np.array([weight_map.get(t, 1.0 / len(avail_port)) for t in avail_port])
+        base_pm = _grade_portfolio(base_returns_df, base_weights, bench_ret)
+        base_score = base_pm["grade"]["score"] if "grade" in base_pm else 0.0
+
+        # Candidate yield (annualized)
+        _div_span_days = (close.index[-1] - close.index[0]).days if len(close) >= 2 else 365
+        _div_span_years = max(_div_span_days / 365.25, 0.1)
+
+        if cand_ticker in yield_map:
+            c_yield = yield_map[cand_ticker]
+        elif cand_ticker in dividends.columns:
+            try:
+                ds = dividends[cand_ticker]
+                total_d = ds[ds > 0].sum()
+                annual_d = total_d / _div_span_years
+                lp = close[cand_ticker].dropna().iloc[-1] if len(close[cand_ticker].dropna()) > 0 else 0
+                c_yield = min((annual_d / lp) if lp > 0 else 0.0, 0.50)
+            except Exception:
+                c_yield = 0.0
+        else:
+            c_yield = 0.0
+
+        current_income = income_map.get(weak_ticker, 0.0)
+        current_value_wt = value_map.get(weak_ticker, 0.0)
+        new_income = c_yield * current_value_wt
+        if current_income > 0:
+            income_ratio = new_income / current_income
+        else:
+            income_ratio = 1.0
+
+        cc = close[cand_ticker].dropna()
+        if len(cc) < 30:
+            return jsonify({"error": f"Not enough price history for {cand_ticker} (need 30 days)."}), 400
+
+        # Build swapped portfolio
+        if weak_ticker in avail_port:
+            swap_idx = avail_port.index(weak_ticker)
+            swap_tickers = list(avail_port)
+            swap_tickers[swap_idx] = cand_ticker
+            cols = []
+            for i, t in enumerate(avail_port):
+                if i == swap_idx:
+                    cols.append(cc.rename(cand_ticker))
+                else:
+                    cols.append(close[t])
+            swapped_close = pd.concat(cols, axis=1)
+            swapped_close.columns = swap_tickers
+        else:
+            swap_tickers = avail_port + [cand_ticker]
+            swapped_close = pd.concat([close[avail_port], cc.rename(cand_ticker)], axis=1)
+            swap_tickers = list(swapped_close.columns)
+
+        swapped_close = swapped_close.dropna(how="all")
+        if len(swapped_close) < 30:
+            return jsonify({"error": f"Not enough overlapping data for swap evaluation."}), 400
+
+        swapped_returns = swapped_close.pct_change().dropna()
+        swapped_weights = np.array([
+            weight_map.get(t, 1.0 / len(swap_tickers)) for t in swap_tickers
+        ])
+        try:
+            new_pm = _grade_portfolio(swapped_returns, swapped_weights, bench_ret)
+            new_score = new_pm["grade"]["score"] if "grade" in new_pm else 0.0
+            new_grade = new_pm["grade"]["overall"] if "grade" in new_pm else "--"
+        except Exception:
+            return jsonify({"error": "Failed to grade swapped portfolio."}), 500
+
+        improvement = round(new_score - base_score, 1)
+
+        return jsonify({
+            "candidate": {
+                "ticker": cand_ticker,
+                "score_after": round(new_score, 1),
+                "grade_after": new_grade,
+                "improvement": improvement,
+                "new_income": round(new_income, 2),
+                "income_ratio": round(income_ratio, 3),
+                "sharpe": safe(_sharpe(cc)),
+                "sortino": safe(_sortino(cc)),
+                "yield_pct": round(c_yield * 100, 2),
+            },
+            "base_score": round(base_score, 1),
         })
 
     return jsonify({"error": "Unknown mode."}), 400

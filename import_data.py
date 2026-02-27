@@ -504,6 +504,19 @@ def ensure_tables_exist(conn):
         )
     """)
 
+    # swap_candidates — user-saved swap candidate tickers per profile
+    cursor.execute("""
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                       WHERE TABLE_NAME = 'swap_candidates')
+        CREATE TABLE dbo.swap_candidates (
+            id         INT IDENTITY(1,1) PRIMARY KEY,
+            profile_id INT          NOT NULL DEFAULT 1,
+            ticker     NVARCHAR(20) NOT NULL,
+            added_at   DATETIME     NOT NULL DEFAULT GETDATE(),
+            CONSTRAINT uq_swap_candidates_profile_ticker UNIQUE (profile_id, ticker)
+        )
+    """)
+
     conn.commit()
 
 

@@ -160,14 +160,40 @@
     <span class="po-cand-chip po-cand-active" data-ticker="{{ c }}"
           onclick="toggleCand(this)"
           style="padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;
-                 user-select:none;border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff">
+                 user-select:none;border:1px solid {% if c in saved_candidates %}#00e89a{% else %}#7ecfff{% endif %};
+                 background:#1a1a3a;color:{% if c in saved_candidates %}#00e89a{% else %}#7ecfff{% endif %}">
       {{ c }}
       {% if c in portfolio_set %}
       <span style="font-size:0.65rem;color:#888;margin-left:2px">(held)</span>
       {% endif %}
+      {% if c in saved_candidates %}
+      <span class="po-chip-remove" data-ticker="{{ c }}"
+            onclick="event.stopPropagation();removeCandidate(this,'{{ c }}')"
+            title="Remove from my list"
+            style="margin-left:4px;color:#888;font-size:0.7rem;cursor:pointer">✕</span>
+      {% endif %}
+    </span>
+    {% endfor %}
+    {% for c in user_only_candidates %}
+    <span class="po-cand-chip po-cand-active po-cand-user" data-ticker="{{ c }}"
+          onclick="toggleCand(this)"
+          style="padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;
+                 user-select:none;border:1px solid #00e89a;background:#1a1a3a;color:#00e89a">
+      {{ c }}
+      {% if c in portfolio_set %}
+      <span style="font-size:0.65rem;color:#888;margin-left:2px">(held)</span>
+      {% endif %}
+      <span class="po-chip-remove" data-ticker="{{ c }}"
+            onclick="event.stopPropagation();removeCandidate(this,'{{ c }}')"
+            title="Remove from my list"
+            style="margin-left:4px;color:#888;font-size:0.7rem;cursor:pointer">✕</span>
     </span>
     {% endfor %}
   </div>
+  <p style="font-size:0.72rem;color:#555;margin:0 0 0.6rem 0">
+    <span style="color:#00e89a">■</span> green = saved to your list &nbsp;
+    <span style="color:#7ecfff">■</span> blue = default candidates
+  </p>
   <details style="margin-bottom:0.5rem">
     <summary style="cursor:pointer;font-size:0.78rem;color:#7ecfff;user-select:none">
       ＋ Load a list of tickers
@@ -177,22 +203,29 @@
         placeholder="JEPI, SCHD, O&#10;one per line or comma-separated"
         style="flex:1;padding:0.4rem;background:#111124;border:1px solid #333;border-radius:4px;
                color:#ddd;font-size:0.82rem;resize:vertical;font-family:inherit"></textarea>
-      <button onclick="loadBulkCandidates()"
-        style="padding:0.35rem 0.7rem;background:#1a1a3a;border:1px solid #7ecfff;
-               border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer;white-space:nowrap">
-        Load All
-      </button>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button onclick="loadBulkCandidates(false)"
+          style="padding:0.35rem 0.7rem;background:#1a1a3a;border:1px solid #7ecfff;
+                 border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer;white-space:nowrap">
+          Load (temp)
+        </button>
+        <button onclick="loadBulkCandidates(true)"
+          style="padding:0.35rem 0.7rem;background:#0a2a0a;border:1px solid #00e89a;
+                 border-radius:4px;color:#00e89a;font-size:0.82rem;cursor:pointer;white-space:nowrap">
+          💾 Save to list
+        </button>
+      </div>
     </div>
   </details>
   <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center">
     <div style="display:flex;gap:4px">
-      <input id="po-cand-add" type="text" placeholder="Add ticker…"
-             style="width:100px;padding:0.3rem 0.5rem;background:#111124;border:1px solid #333;
+      <input id="po-cand-add" type="text" placeholder="Add & save ticker…"
+             style="width:130px;padding:0.3rem 0.5rem;background:#111124;border:1px solid #333;
                     border-radius:4px;color:#ddd;font-size:0.85rem;text-transform:uppercase"
              onkeydown="if(event.key==='Enter')addCandidate()">
       <button onclick="addCandidate()"
-              style="padding:0.3rem 0.7rem;background:#1a1a3a;border:1px solid #7ecfff;
-                     border-radius:4px;color:#7ecfff;font-size:0.82rem;cursor:pointer">Add</button>
+              style="padding:0.3rem 0.7rem;background:#0a2a0a;border:1px solid #00e89a;
+                     border-radius:4px;color:#00e89a;font-size:0.82rem;cursor:pointer">💾 Add</button>
     </div>
     <button onclick="selectAllCands(true)"
             style="padding:0.25rem 0.6rem;background:transparent;border:1px solid #444;
@@ -201,6 +234,7 @@
             style="padding:0.25rem 0.6rem;background:transparent;border:1px solid #444;
                    border-radius:4px;color:#888;font-size:0.78rem;cursor:pointer">All Off</button>
     <span id="po-cand-count" style="font-size:0.78rem;color:#555"></span>
+    <span id="po-cand-save-status" style="font-size:0.75rem;color:#666"></span>
   </div>
 </div>
 
@@ -249,6 +283,7 @@
       <p style="color:#aaa;margin:0.5rem 0 0 0;font-size:0.85rem">Computing swap candidates…</p>
     </div>
     <div id="po-swap-error" style="display:none" class="flash error"></div>
+    <div id="po-swap-summary" style="display:none"></div>
     <div id="po-swaps-list"></div>
     <p id="po-swaps-empty" style="display:none;color:#555;font-size:0.85rem;padding:1rem 0">
       Select one or more holdings from the left and click "Analyze Selected" to find swap candidates.
@@ -311,9 +346,89 @@
     padding: 0.6rem 0.9rem;
     border-bottom: 1px solid #1a1a2e;
     flex-wrap: wrap;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    border-left: 3px solid transparent;
   }
   .po-candidate-row:last-child { border-bottom: none; }
-  .po-candidate-row:hover { background: #111124; }
+  .po-candidate-row:hover { background: #161630; }
+  .po-candidate-row.po-cand-selected {
+    background: #0a1a1a;
+    border-left-color: #00e89a;
+  }
+  .po-candidate-row.po-cand-dimmed {
+    opacity: 0.45;
+  }
+  .po-candidate-row.po-cand-dimmed:hover {
+    opacity: 0.75;
+  }
+  .po-swap-summary {
+    background: #111124;
+    border: 1px solid #2a2a3e;
+    border-radius: 8px;
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    font-size: 0.82rem;
+  }
+  .po-swap-summary-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.2rem 0.5rem;
+    background: #0d0d1f;
+    border: 1px solid #2a2a3e;
+    border-radius: 6px;
+    color: #aaa;
+  }
+  .po-swap-summary-item .po-swap-arrow { color: #555; margin: 0 2px; }
+  .po-reset-btn {
+    margin-left: auto;
+    padding: 0.25rem 0.7rem;
+    background: #2a0000;
+    border: 1px solid #f44;
+    border-radius: 6px;
+    color: #f66;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .po-reset-btn:hover { background: #3a0000; }
+  .po-custom-swap-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    border-top: 1px dashed #2a2a3e;
+  }
+  .po-custom-swap-input {
+    background: #0a0a1a;
+    border: 1px solid #2a2a3e;
+    color: #ddd;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    width: 80px;
+    text-transform: uppercase;
+  }
+  .po-custom-swap-input:focus { border-color: #7ecfff; outline: none; }
+  .po-custom-swap-btn {
+    background: #1a1a3a;
+    border: 1px solid #7ecfff;
+    color: #7ecfff;
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .po-custom-swap-btn:hover { background: #222244; }
+  .po-custom-swap-btn:disabled { opacity: 0.4; cursor: default; }
+  .po-custom-swap-status {
+    font-size: 0.72rem;
+    color: #666;
+  }
 
   .po-grade-badge {
     display: inline-block;
@@ -355,6 +470,12 @@
   var customPortfolio = null;  // null = use DB; [{ticker, shares}, ...] = custom
   var DB_HOLDINGS = {{ db_holdings | tojson }};  // injected from Flask
 
+  // Swap selection state
+  var appliedSwaps = {};       // { weakTicker: { candidate data object } }
+  var lastSwapsData = null;    // cached response from last swaps fetch
+  var lastBaseScore = 0;
+  var lastBaseGrade = "--";
+
   // ── Period selector ──────────────────────────────────────────────────
   window.setPeriod = function(p) {
     activePeriod = p;
@@ -368,9 +489,11 @@
   // ── Candidate chip toggle ────────────────────────────────────────────
   window.toggleCand = function(el) {
     var active = el.classList.toggle("po-cand-active");
-    el.style.background   = active ? "#1a1a3a" : "#0d0d1f";
-    el.style.color        = active ? "#7ecfff" : "#555";
-    el.style.borderColor  = active ? "#7ecfff" : "#333";
+    var isSaved = el.classList.contains("po-cand-user");
+    var onColor = isSaved ? "#00e89a" : "#7ecfff";
+    el.style.background  = active ? "#1a1a3a" : "#0d0d1f";
+    el.style.color       = active ? onColor : "#555";
+    el.style.borderColor = active ? onColor : "#333";
     updateCandCount();
   };
 
@@ -387,45 +510,107 @@
     if (el) el.textContent = n + " active";
   }
 
+  function _makeSavedChip(t) {
+    var chip = document.createElement("span");
+    chip.className = "po-cand-chip po-cand-active po-cand-user";
+    chip.dataset.ticker = t;
+    chip.onclick = function() { toggleCand(this); };
+    chip.style.cssText = "padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;" +
+      "user-select:none;border:1px solid #00e89a;background:#1a1a3a;color:#00e89a;display:inline-flex;align-items:center";
+    chip.innerHTML = t + '<span style="margin-left:4px;color:#888;font-size:0.7rem;cursor:pointer" ' +
+      'onclick="event.stopPropagation();removeCandidate(this,\'' + t + '\')" title="Remove from my list">✕</span>';
+    return chip;
+  }
+
+  function _saveCandidatesToDb(tickers, callback) {
+    var statusEl = document.getElementById("po-cand-save-status");
+    fetch("/portfolio_optimizer/candidates", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({tickers: tickers})
+    }).then(function(r){ return r.json(); }).then(function(data) {
+      if (statusEl) {
+        statusEl.textContent = "Saved " + (data.saved || []).length + " ticker(s) to your list";
+        setTimeout(function(){ statusEl.textContent = ""; }, 3000);
+      }
+      if (callback) callback(data.saved || []);
+    }).catch(function() {
+      if (statusEl) statusEl.textContent = "Save failed";
+    });
+  }
+
   window.addCandidate = function() {
     var inp = document.getElementById("po-cand-add");
     var t = inp.value.trim().toUpperCase();
     if (!t) return;
-    // Prevent duplicates
-    if (document.querySelector('.po-cand-chip[data-ticker="' + t + '"]')) {
-      inp.value = "";
+    inp.value = "";
+    // If already exists as chip, just ensure it's marked saved (green)
+    var existing = document.querySelector('.po-cand-chip[data-ticker="' + t + '"]');
+    if (existing) {
+      // Upgrade to saved styling if it's a default (blue) chip
+      if (!existing.classList.contains("po-cand-user")) {
+        existing.classList.add("po-cand-user");
+        existing.style.borderColor = "#00e89a";
+        existing.style.color = "#00e89a";
+        // Add remove button if not already present
+        if (!existing.querySelector(".po-chip-remove")) {
+          var rmBtn = document.createElement("span");
+          rmBtn.className = "po-chip-remove";
+          rmBtn.dataset.ticker = t;
+          rmBtn.title = "Remove from my list";
+          rmBtn.style.cssText = "margin-left:4px;color:#888;font-size:0.7rem;cursor:pointer";
+          rmBtn.textContent = "✕";
+          rmBtn.onclick = function(e) { e.stopPropagation(); removeCandidate(this, t); };
+          existing.appendChild(rmBtn);
+        }
+      }
+      _saveCandidatesToDb([t], null);
       return;
     }
-    var chip = document.createElement("span");
-    chip.className = "po-cand-chip po-cand-active";
-    chip.dataset.ticker = t;
-    chip.onclick = function() { toggleCand(this); };
-    chip.style.cssText = "padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;" +
-      "user-select:none;border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff;display:inline-block";
-    chip.textContent = t;
+    var chip = _makeSavedChip(t);
     document.getElementById("po-cand-chips").appendChild(chip);
-    inp.value = "";
     updateCandCount();
+    _saveCandidatesToDb([t], null);
   };
 
-  window.loadBulkCandidates = function() {
+  window.loadBulkCandidates = function(saveToDb) {
     var raw = document.getElementById("po-bulk-input").value;
     var tickers = raw.split(/[\s,;\n]+/).map(function(t){ return t.trim().toUpperCase(); })
                      .filter(function(t){ return t.length > 0; });
+    var newTickers = [];
     tickers.forEach(function(t) {
       if (!document.querySelector('.po-cand-chip[data-ticker="' + t + '"]')) {
-        var chip = document.createElement("span");
-        chip.className = "po-cand-chip po-cand-active";
-        chip.dataset.ticker = t;
-        chip.onclick = function() { toggleCand(this); };
-        chip.style.cssText = "padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;" +
-          "user-select:none;border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff;display:inline-block";
-        chip.textContent = t;
+        var chip = saveToDb ? _makeSavedChip(t) : (function(){
+          var c = document.createElement("span");
+          c.className = "po-cand-chip po-cand-active";
+          c.dataset.ticker = t;
+          c.onclick = function() { toggleCand(this); };
+          c.style.cssText = "padding:0.25rem 0.6rem;border-radius:12px;font-size:0.8rem;cursor:pointer;" +
+            "user-select:none;border:1px solid #7ecfff;background:#1a1a3a;color:#7ecfff;display:inline-block";
+          c.textContent = t;
+          return c;
+        })();
         document.getElementById("po-cand-chips").appendChild(chip);
+        newTickers.push(t);
       }
     });
     document.getElementById("po-bulk-input").value = "";
     updateCandCount();
+    if (saveToDb && newTickers.length) {
+      _saveCandidatesToDb(newTickers, null);
+    }
+  };
+
+  window.removeCandidate = function(btn, ticker) {
+    var chip = btn.closest ? btn.closest(".po-cand-chip") : btn.parentElement;
+    fetch("/portfolio_optimizer/candidates/" + encodeURIComponent(ticker), {
+      method: "DELETE"
+    }).then(function() {
+      if (chip && chip.parentElement) {
+        chip.parentElement.removeChild(chip);
+        updateCandCount();
+      }
+    });
   };
 
   // ── Holdings selection ───────────────────────────────────────────────
@@ -571,6 +756,9 @@
     document.getElementById("po-swaps-list").innerHTML = "";
     document.getElementById("po-swaps-empty").style.display = "none";
     document.getElementById("po-base-grade-badge").style.display = "none";
+    document.getElementById("po-swap-summary").style.display = "none";
+    appliedSwaps = {};
+    lastSwapsData = null;
 
     fetch(url)
       .then(function(r) { return r.json(); })
@@ -691,6 +879,7 @@
     document.getElementById("po-swaps-list").innerHTML = "";
     document.getElementById("po-swaps-empty").style.display = "none";
     document.getElementById("po-base-grade-badge").style.display = "none";
+    document.getElementById("po-swap-summary").style.display = "none";
 
     fetch(url)
       .then(function(r) { return r.json(); })
@@ -708,6 +897,13 @@
           document.getElementById("po-base-grade-text").textContent = data.base_grade;
           document.getElementById("po-base-score-text").textContent = (data.base_score || 0).toFixed(1);
         }
+
+        // Cache swap data for selection logic
+        lastSwapsData = data.swaps || {};
+        lastBaseScore = data.base_score || 0;
+        lastBaseGrade = data.base_grade || "--";
+        appliedSwaps = {};
+        updateSwapSummary();
 
         if (data.portfolio_tickers_used && data.portfolio_tickers_used.length) {
           var note = '<details style="margin-bottom:0.75rem;font-size:0.78rem;color:#555">' +
@@ -789,12 +985,20 @@
           var newGradeCls = gradeColor(c.grade_after);
           var oldGradeCls = gradeColor(sw.current_grade);
 
-          return '<div class="po-candidate-row">' +
+          var isSelected = appliedSwaps[ticker] && appliedSwaps[ticker].ticker === c.ticker;
+          var isDimmed = appliedSwaps[ticker] && !isSelected;
+          var rowCls = "po-candidate-row" +
+            (isSelected ? " po-cand-selected" : "") +
+            (isDimmed ? " po-cand-dimmed" : "");
+
+          return '<div class="' + rowCls + '" data-weak="' + ticker + '" data-cand="' + c.ticker + '" ' +
+            'onclick="selectSwap(\'' + ticker + '\', \'' + c.ticker + '\')">' +
             '<div style="font-size:0.82rem;min-width:40px">' +
-              '<span style="font-size:0.7rem;color:#555">#' + (idx+1) + '</span>' +
+              (isSelected ? '<span style="color:#00e89a;font-size:0.85rem">&#10003;</span>' :
+                '<span style="font-size:0.7rem;color:#555">#' + (idx+1) + '</span>') +
             '</div>' +
             '<div style="min-width:55px">' +
-              '<span style="font-weight:700;font-size:0.95rem;color:#ddd">' + c.ticker + '</span>' +
+              '<span style="font-weight:700;font-size:0.95rem;color:' + (isSelected ? '#00e89a' : '#ddd') + '">' + c.ticker + '</span>' +
             '</div>' +
             '<div style="display:flex;align-items:center;gap:4px;min-width:120px">' +
               '<span class="po-grade-badge ' + oldGradeCls + '" style="font-size:0.72rem">' +
@@ -824,12 +1028,168 @@
         }).join("");
       }
 
+      // Custom ticker input row
+      var customRow = '<div class="po-custom-swap-row">' +
+        '<span style="font-size:0.75rem;color:#666">Try another:</span>' +
+        '<input class="po-custom-swap-input" id="po-custom-input-' + ticker + '" ' +
+          'placeholder="TICKER" onkeydown="if(event.key===\'Enter\')evalCustomSwap(\'' + ticker + '\')">' +
+        '<button class="po-custom-swap-btn" onclick="evalCustomSwap(\'' + ticker + '\')">Evaluate</button>' +
+        '<span class="po-custom-swap-status" id="po-custom-status-' + ticker + '"></span>' +
+      '</div>';
+
       return '<div class="po-swap-card">' + headerHtml +
-        '<div class="po-swap-body">' + candHtml + '</div>' +
+        '<div class="po-swap-body">' + candHtml + customRow + '</div>' +
       '</div>';
     }).join("");
 
     container.innerHTML = existingNote + html;
+  }
+
+  // ── Swap selection logic ─────────────────────────────────────────────
+  window.selectSwap = function(weakTicker, candTicker) {
+    // Toggle: if same candidate already selected, deselect
+    if (appliedSwaps[weakTicker] && appliedSwaps[weakTicker].ticker === candTicker) {
+      delete appliedSwaps[weakTicker];
+    } else {
+      // Find the candidate data from cached swaps
+      var sw = lastSwapsData[weakTicker];
+      if (!sw) return;
+      var cand = null;
+      for (var i = 0; i < sw.candidates.length; i++) {
+        if (sw.candidates[i].ticker === candTicker) { cand = sw.candidates[i]; break; }
+      }
+      if (!cand) return;
+      appliedSwaps[weakTicker] = cand;
+    }
+    // Re-render the swap cards to update selection styling
+    renderSwaps(lastSwapsData, lastBaseScore, lastBaseGrade);
+    updateSwapSummary();
+  };
+
+  window.resetAllSwaps = function() {
+    appliedSwaps = {};
+    renderSwaps(lastSwapsData, lastBaseScore, lastBaseGrade);
+    updateSwapSummary();
+  };
+
+  window.evalCustomSwap = function(weakTicker) {
+    var inp = document.getElementById("po-custom-input-" + weakTicker);
+    var status = document.getElementById("po-custom-status-" + weakTicker);
+    var candTicker = (inp.value || "").trim().toUpperCase();
+    if (!candTicker) { status.textContent = "Enter a ticker"; status.style.color = "#f66"; return; }
+
+    // Check if already in the candidates list
+    var sw = lastSwapsData[weakTicker];
+    if (sw) {
+      for (var i = 0; i < sw.candidates.length; i++) {
+        if (sw.candidates[i].ticker === candTicker) {
+          status.textContent = "Already listed above"; status.style.color = "#e8c400"; return;
+        }
+      }
+    }
+
+    status.textContent = "Evaluating…"; status.style.color = "#7ecfff";
+    var bench = document.getElementById("po-bench").value.trim().toUpperCase() || "SPY";
+    var url = "/portfolio_optimizer/data?mode=eval_custom_swap" +
+      "&weak=" + encodeURIComponent(weakTicker) +
+      "&candidate=" + encodeURIComponent(candTicker) +
+      "&benchmark=" + encodeURIComponent(bench) +
+      "&period=" + encodeURIComponent(activePeriod);
+    if (customPortfolio) {
+      url += "&custom_portfolio=" + encodeURIComponent(
+        customPortfolio.map(function(p){ return p.ticker + ":" + p.shares; }).join(",")
+      );
+    }
+
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) {
+          status.textContent = data.error; status.style.color = "#f66"; return;
+        }
+        // Append to cached swap data and re-render
+        if (lastSwapsData[weakTicker] && data.candidate) {
+          lastSwapsData[weakTicker].candidates.push(data.candidate);
+          inp.value = "";
+          status.textContent = ""; status.style.color = "#666";
+          renderSwaps(lastSwapsData, lastBaseScore, lastBaseGrade);
+        }
+      })
+      .catch(function(err) {
+        status.textContent = "Failed: " + err; status.style.color = "#f66";
+      });
+  };
+
+  function updateSwapSummary() {
+    var el = document.getElementById("po-swap-summary");
+    var keys = Object.keys(appliedSwaps);
+    if (!keys.length) {
+      el.style.display = "none";
+      // Revert base grade display
+      if (document.getElementById("po-base-grade-badge").style.display !== "none") {
+        document.getElementById("po-base-grade-text").textContent = lastBaseGrade;
+        document.getElementById("po-base-score-text").textContent = lastBaseScore.toFixed(1);
+      }
+      return;
+    }
+
+    // Calculate new score
+    var newScore, approxLabel;
+    if (keys.length === 1) {
+      newScore = appliedSwaps[keys[0]].score_after;
+      approxLabel = "";
+    } else {
+      var totalImpr = 0;
+      for (var i = 0; i < keys.length; i++) {
+        totalImpr += appliedSwaps[keys[i]].improvement;
+      }
+      newScore = Math.round((lastBaseScore + totalImpr) * 10) / 10;
+      approxLabel = " (approx)";
+    }
+    var newGrade = scoreToGrade(newScore);
+    var newGradeCls = gradeColor(newGrade);
+    var baseGradeCls = gradeColor(lastBaseGrade);
+    var diff = Math.round((newScore - lastBaseScore) * 10) / 10;
+    var diffStr = diff >= 0 ? "+" + diff.toFixed(1) : diff.toFixed(1);
+    var diffColor = diff > 0 ? "#00e89a" : diff < 0 ? "#f66" : "#aaa";
+
+    var items = keys.map(function(wt) {
+      var c = appliedSwaps[wt];
+      var imp = c.improvement >= 0 ? "+" + c.improvement.toFixed(1) : c.improvement.toFixed(1);
+      return '<span class="po-swap-summary-item">' +
+        '<strong style="color:#f66">' + wt + '</strong>' +
+        '<span class="po-swap-arrow">&rarr;</span>' +
+        '<strong style="color:#00e89a">' + c.ticker + '</strong>' +
+        '<span style="color:#666;font-size:0.72rem;margin-left:4px">(' + imp + ')</span>' +
+      '</span>';
+    }).join("");
+
+    el.innerHTML = '<span style="color:#666;font-size:0.75rem;font-weight:600">Applied Swaps:</span>' +
+      items +
+      '<span style="color:#888;font-size:0.78rem;margin-left:0.5rem">' +
+        'Portfolio: <span class="po-grade-badge ' + baseGradeCls + '" style="font-size:0.7rem">' + lastBaseGrade + '</span>' +
+        ' <span style="color:#888">' + lastBaseScore.toFixed(1) + '</span>' +
+        ' <span style="color:#555">&rarr;</span>' +
+        ' <span class="po-grade-badge ' + newGradeCls + '" style="font-size:0.7rem">' + newGrade + '</span>' +
+        ' <span style="color:' + diffColor + ';font-weight:600">' + newScore.toFixed(1) + approxLabel + '</span>' +
+        ' <span style="color:' + diffColor + ';font-size:0.75rem">(' + diffStr + ' pts)</span>' +
+      '</span>' +
+      '<button class="po-reset-btn" onclick="resetAllSwaps()">Reset All</button>';
+    el.style.display = "flex";
+
+    // Update the base grade badge to show new score
+    if (document.getElementById("po-base-grade-badge").style.display !== "none") {
+      document.getElementById("po-base-grade-text").textContent = newGrade;
+      document.getElementById("po-base-score-text").textContent = newScore.toFixed(1) + approxLabel;
+    }
+  }
+
+  function scoreToGrade(score) {
+    if (score >= 80) return "A";
+    if (score >= 65) return "B";
+    if (score >= 50) return "C";
+    if (score >= 35) return "D";
+    return "F";
   }
 
   window.toggleAccordion = function(header) {
