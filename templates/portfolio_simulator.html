@@ -439,7 +439,6 @@
 }
 .pb-import-toggle:hover { background: #0d0d2a; border-color: #7ecfff; }
 .pb-import-panel {
-  display: none;
   background: #0a0a1e;
   border: 1px solid #1e1e3a;
   border-radius: 6px;
@@ -1468,7 +1467,7 @@
     _importPanelOpen = !_importPanelOpen;
     var panel = document.getElementById("pb-import-panel");
     var btn   = document.getElementById("pb-import-toggle");
-    if(panel) panel.style.display = _importPanelOpen ? "" : "none";
+    if(panel) panel.style.display = _importPanelOpen ? "block" : "none";
     if(btn) btn.textContent = (_importPanelOpen ? "↑" : "↓") + " From Account ({{ account_tickers|length }})";
     if(_importPanelOpen) _updateImportBtn();
   };
