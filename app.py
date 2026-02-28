@@ -7267,11 +7267,15 @@ def sim_account_holdings():
         SELECT ticker, current_value, current_price, quantity
         FROM dbo.all_account_info
         WHERE profile_id = ?
-          AND current_value IS NOT NULL AND current_value > 0
+          AND purchase_value IS NOT NULL AND purchase_value > 0
         ORDER BY ticker
     """, conn, params=[pid])
     conn.close()
-    return jsonify(df.to_dict('records'))
+    # Replace NaN with None so jsonify serialises correctly
+    records = [{k: (None if (isinstance(v, float) and v != v) else v)
+                for k, v in row.items()}
+               for row in df.to_dict('records')]
+    return jsonify(records)
 
 
 # ── Profile management routes ─────────────────────────────────────────────────
