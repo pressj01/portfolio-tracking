@@ -7,7 +7,7 @@
   display: flex;
   gap: 0;
   min-height: 80vh;
-  margin: -0.5rem -1rem 0;   /* bleed to container edges */
+  margin: -0.5rem -1rem 0;
 }
 
 /* Sidebar */
@@ -141,7 +141,7 @@
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
+  margin-bottom: 0.6rem;
 }
 .pb-port-title-wrap { display: flex; align-items: center; gap: 0.5rem; }
 #pb-active-name {
@@ -158,6 +158,36 @@
 }
 #pb-active-name:focus { border-bottom-color: #7ecfff; background: rgba(126,207,255,0.06); border-radius: 3px 3px 0 0; }
 #pb-name-hint { font-size: 0.7rem; color: #555; }
+
+/* Bank balance strip */
+.pb-bank-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  margin-bottom: 0.9rem;
+  font-size: 0.84rem;
+  border: 1px solid #1e1e3a;
+  background: #0d0d1f;
+  flex-wrap: wrap;
+}
+.pb-bank-val { font-weight: 700; font-size: 1rem; }
+.pb-bank-green  { color: #00e89a; }
+.pb-bank-orange { color: #f9a825; }
+.pb-bank-red    { color: #ff5252; }
+.pb-bank-label  { color: #555; font-size: 0.75rem; }
+.pb-budget-edit-btn {
+  background: none;
+  border: none;
+  color: #7ecfff;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0;
+  margin-left: auto;
+}
+.pb-budget-edit-btn:hover { text-decoration: underline; }
+.pb-add-avail { font-size: 0.75rem; color: #555; align-self: center; }
 
 /* Controls bar */
 .pb-controls {
@@ -246,13 +276,11 @@
 /* Holdings table */
 .pb-table-wrap {
   overflow-x: auto;
-  overflow-y: auto;
-  max-height: 480px;
+  overflow-y: visible;
   border: 1px solid #1e1e3a;
   border-radius: 6px;
   margin-bottom: 1.5rem;
 }
-/* Top scrollbar sync */
 .pb-table-scroll-top {
   overflow-x: auto;
   overflow-y: hidden;
@@ -264,13 +292,13 @@
 .pb-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
-  min-width: 1100px;
+  font-size: 0.77rem;
+  min-width: 900px;
 }
 .pb-table th {
   background: #0d0d1f;
   color: #7ecfff;
-  padding: 0.42rem 0.55rem;
+  padding: 0.35rem 0.35rem;
   text-align: right;
   border-bottom: 2px solid #1e1e3a;
   white-space: nowrap;
@@ -281,13 +309,83 @@
 }
 .pb-table th:first-child { text-align: left; }
 .pb-table td {
-  padding: 0.38rem 0.55rem;
+  padding: 0.3rem 0.35rem;
   border-bottom: 1px solid #171728;
   text-align: right;
   color: #ddd;
 }
 .pb-table td:first-child { text-align: left; font-weight: 600; color: #7ecfff; }
 .pb-table tbody tr:hover { background: #0f0f22; }
+
+/* Column header tooltips */
+.pb-table th[data-tip] { cursor: help; }
+.pb-table th[data-tip]:hover { z-index: 100; }
+.pb-table th[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111124;
+  color: #ccc;
+  border: 1px solid #2a2a4a;
+  border-radius: 5px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+  white-space: pre-line;
+  line-height: 1.5;
+  width: max-content;
+  max-width: 260px;
+  z-index: 999;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+
+/* Glossary */
+.pb-glossary {
+  margin: 0.5rem 0 1.5rem;
+  border: 1px solid #1e1e3a;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.8rem;
+}
+.pb-glossary summary {
+  background: #0d0d1f;
+  color: #7ecfff;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  list-style: none;
+}
+.pb-glossary summary::-webkit-details-marker { display: none; }
+.pb-glossary summary::before { content: "▶  "; font-size: 0.65rem; vertical-align: middle; }
+.pb-glossary[open] summary::before { content: "▼  "; }
+.pb-glossary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 0.6rem 1.2rem;
+  padding: 0.9rem 1rem 1rem;
+  background: #080816;
+}
+.pb-glossary-item dt {
+  color: #7ecfff;
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+.pb-glossary-item dd {
+  color: #aaa;
+  margin: 0;
+  line-height: 1.55;
+}
+.pb-glossary-item dd .pb-gthumb {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: #666;
+}
 
 /* Inline dollar edit */
 .pb-dollar-cell { cursor: pointer; position: relative; }
@@ -307,7 +405,7 @@
   text-align: right;
 }
 
-/* Delete holding button */
+/* Delete + Sell holding buttons */
 .pb-del-holding {
   background: none;
   border: none;
@@ -317,10 +415,19 @@
   padding: 0 4px;
 }
 .pb-del-holding:hover { color: #ff5252; }
+.pb-sell-holding {
+  background: none;
+  border: none;
+  color: #f9a825;
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 0 3px;
+}
+.pb-sell-holding:hover { color: #ffc107; }
 
 /* Score bar */
 .pb-score-bar-wrap {
-  flex: 1; height: 11px; background: #1a1a2e; border-radius: 3px; overflow: hidden; min-width: 50px;
+  flex: 1; height: 10px; background: #1a1a2e; border-radius: 3px; overflow: hidden; min-width: 38px;
 }
 .pb-score-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
 
@@ -386,7 +493,7 @@
   font-size: 0.85rem;
 }
 
-/* Reuse pa-grade-ring etc. */
+/* Grade ring + breakdown (reuse pa-* classes from analytics) */
 .pa-grade-ring {
   width:130px;height:130px;border-radius:50%;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -417,7 +524,7 @@
 .pa-summary-card .pa-card-val { font-size:1.2rem;font-weight:700; }
 .pa-summary-card .pa-card-lbl { font-size:0.7rem;color:#888;margin-top:2px; }
 
-/* New-portfolio modal overlay */
+/* Modal overlay (create + budget edit) */
 .pb-modal-overlay {
   display: none;
   position: fixed;
@@ -467,17 +574,115 @@
   font-weight: 700;
   cursor: pointer;
 }
+.pb-modal-label {
+  font-size: 0.74rem;
+  color: #666;
+  margin-bottom: 0.25rem;
+  display: block;
+}
+
+/* Sell modal */
+.pb-sell-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 910;
+  align-items: center;
+  justify-content: center;
+}
+.pb-sell-overlay.pb-sell-open { display: flex; }
+.pb-sell-modal {
+  background: #111124;
+  border: 1px solid #2a2a4e;
+  border-radius: 10px;
+  padding: 1.4rem;
+  width: 330px;
+  max-width: 95vw;
+}
+.pb-sell-modal h4 { margin: 0 0 0.3rem; color: #f9a825; font-size: 0.95rem; }
+.pb-sell-holding-info { font-size: 0.78rem; color: #666; margin-bottom: 0.8rem; }
+.pb-sell-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.pb-sell-slider-row input[type=range] { flex: 1; accent-color: #f9a825; }
+.pb-sell-slider-row input[type=number] {
+  width: 80px;
+  background: #0d0d1f;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #ddd;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+  text-align: right;
+}
+.pb-sell-equiv { font-size: 0.8rem; color: #aaa; margin: 0.3rem 0 0.9rem; min-height: 1.1em; }
+.pb-sell-btns { display: flex; justify-content: flex-end; gap: 0.6rem; }
+.pb-sell-cancel {
+  padding: 0.35rem 0.8rem;
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #aaa;
+  cursor: pointer;
+}
+.pb-sell-confirm {
+  padding: 0.35rem 0.9rem;
+  background: #f9a825;
+  border: none;
+  border-radius: 4px;
+  color: #000;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pb-sell-confirm:hover { opacity: 0.9; }
 </style>
 
 <!-- New-portfolio modal -->
 <div class="pb-modal-overlay" id="pb-modal-overlay">
   <div class="pb-modal">
-    <h3>New Portfolio</h3>
+    <h3>New Simulation Portfolio</h3>
     <input id="pb-modal-name" type="text" placeholder="Portfolio name (e.g. Income Heavy)" maxlength="100">
     <textarea id="pb-modal-notes" placeholder="Notes (optional)"></textarea>
+    <label class="pb-modal-label">Starting Budget (optional)</label>
+    <input id="pb-modal-budget" type="number" min="0" step="1000" placeholder="e.g. 100000">
     <div class="pb-modal-btns">
       <button class="pb-modal-cancel" onclick="closeModal()">Cancel</button>
       <button class="pb-modal-create" onclick="createPortfolio()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Budget edit modal -->
+<div class="pb-modal-overlay" id="pb-budget-modal-overlay">
+  <div class="pb-modal">
+    <h3>Edit Budget</h3>
+    <label class="pb-modal-label">Budget amount (leave blank to remove budget / simple mode)</label>
+    <input id="pb-budget-input" type="number" min="0" step="1000" placeholder="e.g. 100000">
+    <div class="pb-modal-btns">
+      <button class="pb-modal-cancel" onclick="closeBudgetModal()">Cancel</button>
+      <button class="pb-modal-create" onclick="saveBudget()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sell-holding modal -->
+<div class="pb-sell-overlay" id="pb-sell-overlay">
+  <div class="pb-sell-modal">
+    <h4>Sell <span id="pb-sell-ticker-label">—</span></h4>
+    <div class="pb-sell-holding-info" id="pb-sell-holding-info"></div>
+    <label class="pb-modal-label">Sell % of holding</label>
+    <div class="pb-sell-slider-row">
+      <input type="range" id="pb-sell-slider" min="0" max="100" step="0.5" value="50">
+      <input type="number" id="pb-sell-pct" min="0.1" max="100" step="0.1" placeholder="%" value="50">
+    </div>
+    <div class="pb-sell-equiv" id="pb-sell-equiv"></div>
+    <div class="pb-sell-btns">
+      <button class="pb-sell-cancel" onclick="closeSellModal()">Cancel</button>
+      <button class="pb-sell-confirm" onclick="confirmSell()">Confirm Sell</button>
     </div>
   </div>
 </div>
@@ -486,11 +691,11 @@
 
   <!-- ── Sidebar ── -->
   <div class="pb-sidebar">
-    <div class="pb-sidebar-title">Saved Portfolios</div>
-    <button class="pb-new-btn" onclick="openModal()">＋ New Portfolio</button>
+    <div class="pb-sidebar-title">Saved Simulations</div>
+    <button class="pb-new-btn" onclick="openModal()">＋ New Simulation</button>
     <div id="pb-port-list">
       {% if not portfolios %}
-      <p style="font-size:0.78rem;color:#444;padding:0.3rem 0.25rem">No portfolios yet.</p>
+      <p style="font-size:0.78rem;color:#444;padding:0.3rem 0.25rem">No simulations yet.</p>
       {% endif %}
       {% for p in portfolios %}
       <div class="pb-port-item" id="pb-item-{{ p.id }}" onclick="loadPortfolio({{ p.id }}, '{{ p.name|e }}')">
@@ -502,7 +707,7 @@
     </div>
 
     <hr class="pb-sidebar-sep">
-    <div class="pb-compare-title">Compare Portfolios</div>
+    <div class="pb-compare-title">Compare Simulations</div>
     <div id="pb-compare-list">
       {% for p in portfolios %}
       <label class="pb-compare-item">
@@ -532,9 +737,9 @@
     <!-- Empty / select state -->
     <div id="pb-no-selection" {% if portfolios %}style="display:none"{% endif %}>
       <div class="pb-empty" style="margin-top:4rem">
-        <div style="font-size:2.5rem;margin-bottom:0.8rem">📊</div>
-        <div style="font-size:1.1rem;color:#666;margin-bottom:0.4rem">No portfolio selected</div>
-        <div style="font-size:0.85rem;color:#444">Create a new portfolio using the sidebar, then add tickers and click Analyze.</div>
+        <div style="font-size:2.5rem;margin-bottom:0.8rem">🏦</div>
+        <div style="font-size:1.1rem;color:#666;margin-bottom:0.4rem">Portfolio Simulator</div>
+        <div style="font-size:0.85rem;color:#444">Set a starting budget, buy and sell holdings, then Analyze to see metrics.</div>
       </div>
     </div>
 
@@ -551,6 +756,17 @@
                  onkeydown="if(event.key==='Enter'){this.blur();}if(event.key==='Escape'){cancelRename();}">
           <span id="pb-name-hint"></span>
         </div>
+      </div>
+
+      <!-- Bank balance strip (hidden when no budget) -->
+      <div class="pb-bank-strip" id="pb-bank-strip" style="display:none">
+        <span class="pb-bank-label">Bank:</span>
+        <span class="pb-bank-val" id="pb-bank-val">—</span>
+        <span class="pb-bank-label" id="pb-bank-of">of —</span>
+        <button class="pb-budget-edit-btn" onclick="openBudgetEdit()">✏ Edit Budget</button>
+      </div>
+      <div id="pb-no-budget-hint" style="font-size:0.75rem;color:#444;margin-bottom:0.8rem;display:none">
+        No budget set — <button onclick="openBudgetEdit()" style="background:none;border:none;color:#7ecfff;cursor:pointer;font-size:0.75rem;padding:0">add a budget</button> to enable bank tracking.
       </div>
 
       <!-- Controls row -->
@@ -572,7 +788,8 @@
       <div class="pb-add-row">
         <input class="pb-add-ticker" id="pb-add-ticker" type="text" placeholder="Ticker">
         <input class="pb-add-dollars" id="pb-add-dollars" type="number" placeholder="$ Amount" min="0" step="100">
-        <button class="pb-add-submit" onclick="addHolding()">＋ Add</button>
+        <button class="pb-add-submit" onclick="addHolding()">＋ Buy</button>
+        <span id="pb-add-avail" class="pb-add-avail" style="display:none"></span>
         <span id="pb-add-status" style="font-size:0.78rem;color:#00e89a;display:none"></span>
       </div>
 
@@ -586,34 +803,142 @@
         <table class="pb-table" id="pb-holdings-table">
           <thead>
             <tr>
-              <th style="text-align:left;min-width:80px">Ticker</th>
-              <th style="min-width:48px;text-align:center">Grade</th>
-              <th style="min-width:120px">Score</th>
-              <th style="min-width:100px">$ Amount</th>
-              <th>Shares</th>
-              <th>Wt%</th>
-              <th>Sharpe</th>
-              <th>Sortino</th>
-              <th>Calmar</th>
-              <th>Omega</th>
-              <th>Up Cap</th>
-              <th>Dn Cap</th>
-              <th>Ann Ret%</th>
-              <th>Ann Vol%</th>
-              <th>Max DD%</th>
-              <th>52w High</th>
-              <th>52w Low</th>
-              <th>Ann Inc</th>
-              <th>Mon Inc</th>
-              <th>Yield%</th>
-              <th style="text-align:center;min-width:36px"></th>
+              <th style="text-align:left;min-width:65px">Ticker</th>
+              <th style="min-width:40px;text-align:center" data-tip="Letter grade (A–F) derived from the composite score.&#10;Weights: Sharpe 30 · Sortino 20 · Calmar 15&#10;Omega 15 · Max DD 15 · Dn Cap 5">Grade</th>
+              <th style="min-width:90px" data-tip="Composite score 0–100 from six risk-adjusted metrics.&#10;Higher = better overall risk/return profile.&#10;Bar colour: green ≥ 70, orange ≥ 50, red &lt; 50">Score</th>
+              <th style="min-width:80px" data-tip="Dollar amount allocated to this holding.&#10;Click the value to edit inline.&#10;Budget mode: total cannot exceed your budget.">$ Amount</th>
+              <th data-tip="Estimated share count = $ Amount ÷ current price.&#10;Fractional shares are supported.">Shares</th>
+              <th data-tip="Portfolio weight: this holding's $ Amount ÷ total portfolio value.&#10;All weights should sum to 100%.">Wt%</th>
+              <th data-tip="Sharpe Ratio — risk-adjusted return.&#10;Formula: (annualised return − risk-free rate) ÷ annualised volatility.&#10;Thresholds: &gt; 1.5 = excellent · &gt; 1.0 = good · &gt; 0.5 = fair · ≤ 0 = poor">Sharpe</th>
+              <th data-tip="Sortino Ratio — like Sharpe but only penalises downside volatility.&#10;Ignores upside swings, so it's a better measure for income assets.&#10;Thresholds: &gt; 2.0 = excellent · &gt; 1.5 = good · &gt; 1.0 = fair">Sortino</th>
+              <th data-tip="Calmar Ratio — annual return divided by maximum drawdown.&#10;Measures how much return you earn per unit of peak-to-trough loss.&#10;Thresholds: &gt; 1.5 = excellent · &gt; 1.0 = good · &gt; 0.5 = fair">Calmar</th>
+              <th data-tip="Omega Ratio — total gains above zero divided by total losses below zero.&#10;&gt; 1.0 means gains outweigh losses. &gt; 1.5 is considered good.&#10;Includes ALL return observations, not just averages.">Omega</th>
+              <th data-tip="Up-Capture — % of the benchmark's UP-moves this holding captured.&#10;100 = moves in lockstep with benchmark on good days.&#10;&gt; 100 = amplifies gains; 60–100 is a normal range.">Up Cap</th>
+              <th data-tip="Down-Capture — % of the benchmark's DOWN-moves this holding experienced.&#10;Lower is better: &lt; 90 means it falls less than the market on bad days.&#10;"Defensive" assets often have Dn Cap &lt; 70.">Dn Cap</th>
+              <th data-tip="Annualised Return % over the selected analysis period.&#10;Calculated as (end/start)^(252/days) − 1, using adjusted close prices.">Ann Ret%</th>
+              <th data-tip="Annualised Volatility % — standard deviation of daily returns × √252.&#10;Measures how much the price swings day to day.&#10;Lower = smoother ride; income ETFs typically 10–25%.">Ann Vol%</th>
+              <th data-tip="Maximum Drawdown % — largest peak-to-trough decline in the period.&#10;Shows the worst-case loss an investor could have experienced.&#10;Less negative is better; e.g. −15% is better than −40%.">Max DD%</th>
+              <th data-tip="52-Week High — highest unadjusted price over the past 52 weeks.&#10;Helps gauge where the price sits relative to its recent peak.">52w High</th>
+              <th data-tip="52-Week Low — lowest unadjusted price over the past 52 weeks.&#10;Helps gauge where the price sits relative to its recent trough.">52w Low</th>
+              <th data-tip="Estimated Annual Dividend Income from this holding.&#10;Formula: ($ Amount ÷ price) × (dividend per share × frequency).">Ann Inc</th>
+              <th data-tip="Estimated Monthly Dividend Income = Annual Income ÷ 12.&#10;Useful for comparing monthly cash-flow across holdings.">Mon Inc</th>
+              <th data-tip="Dividend Yield % = annual dividends per share ÷ current price × 100.&#10;High yield can mean high income OR elevated risk — check Ann Ret%.">Yield%</th>
+              <th style="text-align:center;min-width:48px"></th>
             </tr>
           </thead>
           <tbody id="pb-holdings-body">
-            <tr><td colspan="21" class="pb-empty" style="padding:1.5rem">No holdings yet — add a ticker above.</td></tr>
+            <tr><td colspan="21" class="pb-empty" style="padding:1.5rem">No holdings yet — buy a ticker above.</td></tr>
           </tbody>
         </table>
       </div>
+
+      <!-- Metric Glossary -->
+      <details class="pb-glossary" id="pb-glossary">
+        <summary>Metric Glossary — what do these numbers mean?</summary>
+        <dl class="pb-glossary-grid">
+
+          <div class="pb-glossary-item">
+            <dt>Sharpe Ratio</dt>
+            <dd>Risk-adjusted return: <em>(annualised return − risk-free rate) ÷ annualised volatility</em>. Answers "how much return do I get per unit of total risk?" Higher is better.
+              <span class="pb-gthumb">✦ &gt; 1.5 excellent · &gt; 1.0 good · &gt; 0.5 fair · ≤ 0 poor</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Sortino Ratio</dt>
+            <dd>Like Sharpe but only penalises <em>downside</em> volatility. Upward swings don't count as risk. Ideal for income ETFs that rarely spike up. Higher is better.
+              <span class="pb-gthumb">✦ &gt; 2.0 excellent · &gt; 1.5 good · &gt; 1.0 fair</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Calmar Ratio</dt>
+            <dd>Annual return ÷ maximum drawdown. Tells you how much return you earn per dollar of worst-case loss. Higher is better; a fund that gained 15% and only ever fell 10% scores 1.5.
+              <span class="pb-gthumb">✦ &gt; 1.5 excellent · &gt; 1.0 good · &gt; 0.5 fair</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Omega Ratio</dt>
+            <dd>Total probability-weighted gains above zero ÷ total losses below zero, across every daily return. Unlike Sharpe, it captures the full shape of the return distribution.
+              <span class="pb-gthumb">✦ &gt; 1.5 good · &gt; 1.0 means gains outweigh losses</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Up-Capture (Up Cap)</dt>
+            <dd>How much of the benchmark's positive return days this holding captures. 100 % = moves in lockstep with the market on good days; &gt; 100 % = amplifies gains. A value of 70 % means when the market rises 10 %, this holding rises ~7 %.
+              <span class="pb-gthumb">✦ 60–100 % is typical; &gt; 100 % = leveraged behaviour</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Down-Capture (Dn Cap)</dt>
+            <dd>How much of the benchmark's negative return days this holding experiences. <em>Lower is better</em>: a Dn Cap of 60 % means when the market falls 10 %, this holding only falls ~6 %. Defensive or low-correlation assets score well here.
+              <span class="pb-gthumb">✦ &lt; 80 % excellent · &lt; 90 % good · &gt; 110 % amplifies losses</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Ann Ret% (Annualised Return)</dt>
+            <dd>Compound annual growth rate over the selected analysis period, calculated from adjusted close prices. Includes price appreciation; <em>does not</em> add dividends on top (those are shown separately in Ann Inc / Yield%).
+              <span class="pb-gthumb">✦ Compare to SPY ~10 % long-run average for context</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Ann Vol% (Annualised Volatility)</dt>
+            <dd>Standard deviation of daily returns × √252. Measures the typical day-to-day price swing, scaled to a yearly figure. Lower volatility = smoother ride. Income-focused ETFs typically land between 10–25 %.
+              <span class="pb-gthumb">✦ &lt; 15 % low · 15–25 % moderate · &gt; 35 % high</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Max DD% (Maximum Drawdown)</dt>
+            <dd>The largest peak-to-trough decline in price during the period, expressed as a negative percentage. Represents the worst loss an investor who bought at the top and sold at the bottom would have suffered.
+              <span class="pb-gthumb">✦ Less negative is better; −10 % is better than −40 %</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>52w High / 52w Low</dt>
+            <dd>The highest and lowest <em>unadjusted</em> closing price over the trailing 52 weeks. Helps you gauge where today's price sits within its recent range — useful for timing buys and monitoring momentum.
+              <span class="pb-gthumb">✦ Price near 52w high = relative strength; near low = potential value or distress</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Ann Inc (Annual Income)</dt>
+            <dd>Estimated annual dividend income from this holding: <em>($ Amount ÷ current price) × dividend per share × payments per year</em>. Based on the most recent stored dividend data.
+              <span class="pb-gthumb">✦ Sum of all holdings = portfolio's estimated yearly cash flow</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Mon Inc (Monthly Income)</dt>
+            <dd>Annual Income ÷ 12. Normalises income to a per-month figure regardless of whether the ticker pays monthly, quarterly, or weekly. Useful for budgeting cash flow.
+              <span class="pb-gthumb">✦ Multiply by 12 to get back to Ann Inc</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Yield% (Dividend Yield)</dt>
+            <dd>Annual dividends per share ÷ current price × 100. A high yield can signal great income <em>or</em> a falling price (yield trap). Always cross-check with Ann Ret% and Max DD% to distinguish the two.
+              <span class="pb-gthumb">✦ &gt; 8 % warrants extra scrutiny; check sustainability</span>
+            </dd>
+          </div>
+
+          <div class="pb-glossary-item">
+            <dt>Grade &amp; Score</dt>
+            <dd>Composite score 0–100 aggregated from six metrics with these weights:<br>
+              Sharpe 30 % · Sortino 20 % · Calmar 15 % · Omega 15 % · Max DD 15 % · Dn Cap 5 %.<br>
+              Grade: A ≥ 80, B ≥ 65, C ≥ 50, D ≥ 35, F &lt; 35.
+              <span class="pb-gthumb">✦ Bar: green ≥ 70 · orange ≥ 50 · red &lt; 50</span>
+            </dd>
+          </div>
+
+        </dl>
+      </details>
 
       <!-- Spinner -->
       <div class="pb-spinner-wrap" id="pb-spinner">
@@ -628,16 +953,13 @@
       <div class="pb-grade-section" id="pb-grade-section" style="display:none">
         <h2 style="font-size:1.05rem;color:#7ecfff;margin-bottom:0.8rem">Portfolio Report Card</h2>
         <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-start">
-          <!-- Grade ring -->
           <div id="pb-grade-ring" class="pa-grade-ring">
             <div class="pa-grade-letter" id="pb-grade-letter">--</div>
             <div class="pa-grade-score" id="pb-grade-score">0 / 100</div>
           </div>
-          <!-- Breakdown bars -->
           <div style="flex:1;min-width:260px">
             <div id="pb-grade-breakdown"></div>
           </div>
-          <!-- Summary stats -->
           <div style="display:flex;flex-direction:column;gap:0.45rem;min-width:140px">
             <div class="pa-summary-card">
               <div class="pa-card-val" id="pb-stat-holdings">--</div>
@@ -667,7 +989,7 @@
         </div>
       </div>
 
-      <!-- Charts: scatter + corr + drawdown -->
+      <!-- Charts -->
       <div class="pb-charts-section" id="pb-charts-section" style="display:none">
         <h2 style="font-size:1.05rem;color:#7ecfff;margin-bottom:0.8rem">Risk &amp; Performance Charts</h2>
         <div class="pb-chart-row">
@@ -685,10 +1007,10 @@
 
     </div><!-- /pb-active-panel -->
 
-    <!-- Comparison section (shown after Run Comparison) -->
+    <!-- Comparison section -->
     <div id="pb-comp-section" style="display:none" class="pb-comp-section">
       <hr style="border-color:#1e1e3a;margin:1.5rem 0">
-      <h2 style="font-size:1.1rem;color:#7ecfff;margin-bottom:0.6rem">Portfolio Comparison</h2>
+      <h2 style="font-size:1.1rem;color:#7ecfff;margin-bottom:0.6rem">Simulation Comparison</h2>
       <div id="pb-comp-error" class="pb-error"></div>
       <div class="pb-comp-chart-row">
         <div style="flex:1;min-width:340px">
@@ -698,7 +1020,6 @@
           <div id="pb-income-chart" style="width:100%;height:420px"></div>
         </div>
       </div>
-      <!-- Comparison table -->
       <div style="overflow-x:auto;margin-top:1rem">
         <table class="pb-table" id="pb-comp-table" style="min-width:700px">
           <thead>
@@ -731,8 +1052,11 @@
   var activePortfolioId = null;
   var activePortfolioName = "";
   var _renamePrevName = "";
-  var holdingsCache = [];   // [{ticker, dollar_amount}, ...]
-  var metricsCache = {};    // ticker -> metrics row (after analyze)
+  var holdingsCache = [];
+  var metricsCache = {};
+  var activePortfolioBudget = null;  // null = simple mode
+  var _sellTicker = null;
+  var _sellDollarAmount = 0;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function fmt$(v){
@@ -788,6 +1112,38 @@
     if(tbl) inner.style.width = tbl.offsetWidth + "px";
   }
 
+  // ── Bank balance display ───────────────────────────────────────────────────
+  function updateBankDisplay(budget, bank_balance){
+    activePortfolioBudget = (budget !== null && budget !== undefined && budget !== "") ? parseFloat(budget) : null;
+
+    var strip = document.getElementById("pb-bank-strip");
+    var hint  = document.getElementById("pb-no-budget-hint");
+    var valEl = document.getElementById("pb-bank-val");
+    var ofEl  = document.getElementById("pb-bank-of");
+    var availEl = document.getElementById("pb-add-avail");
+
+    if(activePortfolioBudget === null){
+      strip.style.display = "none";
+      hint.style.display = "";
+      availEl.style.display = "none";
+      return;
+    }
+    strip.style.display = "flex";
+    hint.style.display = "none";
+
+    var bb = (bank_balance !== null && bank_balance !== undefined) ? parseFloat(bank_balance) : activePortfolioBudget;
+    var pct = activePortfolioBudget > 0 ? bb / activePortfolioBudget : 0;
+    var cls = pct > 0.10 ? "pb-bank-green" : (pct > 0.05 ? "pb-bank-orange" : "pb-bank-red");
+
+    valEl.textContent = fmt$(bb);
+    valEl.className = "pb-bank-val " + cls;
+    ofEl.textContent = "of " + fmt$(activePortfolioBudget) + " budget";
+
+    availEl.style.display = "inline";
+    availEl.textContent = "Available: " + fmt$(Math.max(0, bb));
+    availEl.style.color = pct > 0.10 ? "#00e89a" : (pct > 0.05 ? "#f9a825" : "#ff5252");
+  }
+
   // ── Period buttons ─────────────────────────────────────────────────────────
   window.setPeriod = function(p){
     activePeriod = p;
@@ -800,10 +1156,11 @@
     });
   };
 
-  // ── Modal ──────────────────────────────────────────────────────────────────
+  // ── Create portfolio modal ─────────────────────────────────────────────────
   window.openModal = function(){
     document.getElementById("pb-modal-name").value = "";
     document.getElementById("pb-modal-notes").value = "";
+    document.getElementById("pb-modal-budget").value = "";
     document.getElementById("pb-modal-overlay").classList.add("pb-modal-open");
     setTimeout(function(){ document.getElementById("pb-modal-name").focus(); }, 80);
   };
@@ -821,11 +1178,14 @@
   window.createPortfolio = function(){
     var name = document.getElementById("pb-modal-name").value.trim();
     var notes = document.getElementById("pb-modal-notes").value.trim();
+    var budgetRaw = document.getElementById("pb-modal-budget").value.trim();
+    var budget = budgetRaw !== "" ? parseFloat(budgetRaw) : null;
     if(!name){ alert("Portfolio name is required."); return; }
-    fetch("/portfolio_builder/portfolios", {
+    if(budget !== null && (isNaN(budget) || budget <= 0)){ alert("Budget must be a positive number."); return; }
+    fetch("/portfolio_simulator/portfolios", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({name:name, notes:notes})
+      body: JSON.stringify({name:name, notes:notes, budget:(budget && budget > 0 ? budget : null)})
     }).then(function(r){ return r.json(); }).then(function(d){
       if(d.error){ alert("Error: " + d.error); return; }
       closeModal();
@@ -836,7 +1196,6 @@
 
   function _addSidebarItem(id, name, count){
     var list = document.getElementById("pb-port-list");
-    // Remove "no portfolios" placeholder
     var placeholder = list.querySelector("p");
     if(placeholder) placeholder.remove();
 
@@ -850,7 +1209,6 @@
       '<button class="pb-port-del" onclick="event.stopPropagation();deletePortfolio('+id+')" title="Delete">✕</button>';
     list.prepend(div);
 
-    // Add to compare list
     var compList = document.getElementById("pb-compare-list");
     var label = document.createElement("label");
     label.className = "pb-compare-item";
@@ -867,8 +1225,8 @@
 
   // ── Delete portfolio ───────────────────────────────────────────────────────
   window.deletePortfolio = function(id){
-    if(!confirm("Delete this portfolio and all its holdings?")) return;
-    fetch("/portfolio_builder/portfolios/"+id, {method:"DELETE"})
+    if(!confirm("Delete this simulation and all its holdings?")) return;
+    fetch("/portfolio_simulator/portfolios/"+id, {method:"DELETE"})
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(d.error){ alert("Error: " + d.error); return; }
@@ -887,7 +1245,6 @@
 
   // ── Load portfolio ─────────────────────────────────────────────────────────
   window.loadPortfolio = function(id, name){
-    // Highlight sidebar
     document.querySelectorAll(".pb-port-item").forEach(function(el){ el.classList.remove("pb-port-active"); });
     var item = document.getElementById("pb-item-"+id);
     if(item) item.classList.add("pb-port-active");
@@ -905,12 +1262,12 @@
     document.getElementById("pb-error").style.display = "none";
     metricsCache = {};
 
-    // Load holdings
-    fetch("/portfolio_builder/portfolios/"+id+"/holdings")
+    fetch("/portfolio_simulator/portfolios/"+id+"/holdings")
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(d.error){ showError(d.error); return; }
         holdingsCache = d.holdings || [];
+        updateBankDisplay(d.budget, d.bank_balance);
         renderHoldingsTable(holdingsCache, {});
         syncScrollWidth();
       }).catch(function(e){ showError("Failed to load holdings: " + e); });
@@ -920,11 +1277,10 @@
   function renderHoldingsTable(holdings, metricsMap){
     var body = document.getElementById("pb-holdings-body");
     if(!holdings || !holdings.length){
-      body.innerHTML = '<tr><td colspan="21" class="pb-empty" style="padding:1.5rem">No holdings yet — add a ticker above.</td></tr>';
+      body.innerHTML = '<tr><td colspan="21" class="pb-empty" style="padding:1.5rem">No holdings yet — buy a ticker above.</td></tr>';
       return;
     }
 
-    // Total $ for weight calc
     var total$ = holdings.reduce(function(s,h){ return s + (parseFloat(h.dollar_amount)||0); }, 0);
 
     var html = "";
@@ -934,7 +1290,6 @@
       var shares = m.shares !== undefined && m.shares !== null ? parseFloat(m.shares).toFixed(2) : "--";
       var price = m.current_price !== undefined && m.current_price !== null ? "$"+parseFloat(m.current_price).toFixed(2) : "";
       var gc = gradeClass(m.grade || "--");
-      var gcolor = gradeColor(m.grade || "--");
       var sc = (m.score !== undefined && m.score !== null) ? m.score : null;
       var barColor = sc !== null ? scoreBarColor(sc) : "#333";
       html += '<tr data-ticker="'+h.ticker+'">';
@@ -966,22 +1321,39 @@
       html += '<td>'+(m.annual_income!==undefined&&m.annual_income!==null ? fmt$(m.annual_income) : '--')+'</td>';
       html += '<td>'+(m.monthly_income!==undefined&&m.monthly_income!==null ? fmt$(m.monthly_income) : '--')+'</td>';
       html += '<td>'+(m.annual_yield_pct!==undefined&&m.annual_yield_pct!==null ? fmtN(m.annual_yield_pct,1)+'%' : '<span class="pb-na">N/A</span>')+'</td>';
-      html += '<td style="text-align:center"><button class="pb-del-holding" onclick="deleteHolding(\''+h.ticker+'\')" title="Remove">🗑</button></td>';
+      // Actions: Sell + Delete
+      html += '<td style="text-align:center;white-space:nowrap">'+
+        '<button class="pb-sell-holding" onclick="openSellModal(\''+h.ticker+'\', '+h.dollar_amount+')" title="Sell">💲</button>'+
+        '<button class="pb-del-holding" onclick="deleteHolding(\''+h.ticker+'\')" title="Remove">🗑</button>'+
+        '</td>';
       html += '</tr>';
     });
     body.innerHTML = html;
     setTimeout(syncScrollWidth, 50);
   }
 
-  // ── Add holding ────────────────────────────────────────────────────────────
+  // ── Add holding (Buy) ──────────────────────────────────────────────────────
   window.addHolding = function(){
-    if(!activePortfolioId){ alert("Select or create a portfolio first."); return; }
+    if(!activePortfolioId){ alert("Select or create a simulation first."); return; }
     var ticker = document.getElementById("pb-add-ticker").value.trim().toUpperCase();
     var dollars = parseFloat(document.getElementById("pb-add-dollars").value);
     if(!ticker){ alert("Enter a ticker symbol."); return; }
     if(!dollars || dollars <= 0){ alert("Enter a positive dollar amount."); return; }
 
-    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/holdings", {
+    // Client-side budget pre-check
+    if(activePortfolioBudget !== null){
+      var currentTotal = holdingsCache.reduce(function(s,h){ return s + (parseFloat(h.dollar_amount)||0); }, 0);
+      var existing = holdingsCache.find(function(h){ return h.ticker === ticker; });
+      var oldAmount = existing ? parseFloat(existing.dollar_amount||0) : 0;
+      var projected = currentTotal - oldAmount + dollars;
+      if(projected > activePortfolioBudget){
+        var avail = Math.max(0, activePortfolioBudget - (currentTotal - oldAmount));
+        showError("Exceeds budget. Available: " + fmt$(avail));
+        return;
+      }
+    }
+
+    fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ticker:ticker, dollar_amount:dollars})
@@ -989,20 +1361,18 @@
       if(d.error){ showError("Error: " + d.error); return; }
       document.getElementById("pb-add-ticker").value = "";
       document.getElementById("pb-add-dollars").value = "";
-      // Refresh holdings list
       var existing = holdingsCache.findIndex(function(h){ return h.ticker === ticker; });
       if(existing >= 0) holdingsCache[existing].dollar_amount = dollars;
       else holdingsCache.push({ticker:ticker, dollar_amount:dollars});
+      if(d.budget !== undefined) updateBankDisplay(d.budget, d.bank_balance);
       renderHoldingsTable(holdingsCache, metricsCache);
-      // Update sidebar count
       _updateSidebarCount(activePortfolioId, holdingsCache.length);
       var st = document.getElementById("pb-add-status");
-      st.textContent = ticker + " added"; st.style.display = "inline";
+      st.textContent = ticker + " bought"; st.style.display = "inline";
       setTimeout(function(){ st.style.display = "none"; }, 2500);
     }).catch(function(e){ showError("Request failed: " + e); });
   };
 
-  // Enter key on add row
   document.getElementById("pb-add-ticker").addEventListener("keydown", function(e){
     if(e.key==="Enter"){ e.preventDefault(); document.getElementById("pb-add-dollars").focus(); }
   });
@@ -1013,21 +1383,27 @@
   // ── Delete holding ─────────────────────────────────────────────────────────
   window.deleteHolding = function(ticker){
     if(!activePortfolioId) return;
-    if(!confirm("Remove " + ticker + " from this portfolio?")) return;
-    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/holdings/"+ticker, {method:"DELETE"})
+    if(!confirm("Remove " + ticker + " from this simulation?")) return;
+    fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings/"+ticker, {method:"DELETE"})
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(d.error){ showError(d.error); return; }
         holdingsCache = holdingsCache.filter(function(h){ return h.ticker !== ticker; });
         delete metricsCache[ticker];
-        renderHoldingsTable(holdingsCache, metricsCache);
-        _updateSidebarCount(activePortfolioId, holdingsCache.length);
+        // Re-fetch to get fresh bank_balance
+        fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings")
+          .then(function(r2){ return r2.json(); })
+          .then(function(d2){
+            if(!d2.error){ updateBankDisplay(d2.budget, d2.bank_balance); }
+            renderHoldingsTable(holdingsCache, metricsCache);
+            _updateSidebarCount(activePortfolioId, holdingsCache.length);
+          });
       }).catch(function(e){ showError("Request failed: " + e); });
   };
 
   // ── Inline dollar edit ─────────────────────────────────────────────────────
   window.startEditDollar = function(cell, ticker, currentVal){
-    if(cell.querySelector("input")) return;  // already editing
+    if(cell.querySelector("input")) return;
     var inp = document.createElement("input");
     inp.type = "number"; inp.min = "0"; inp.step = "100";
     inp.className = "pb-dollar-input";
@@ -1048,13 +1424,14 @@
       holdingsCache.forEach(function(h){ if(h.ticker===ticker) cell.textContent = fmt$(h.dollar_amount); });
       return;
     }
-    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/holdings", {
+    fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ticker:ticker, dollar_amount:val})
     }).then(function(r){ return r.json(); }).then(function(d){
-      if(d.error){ showError(d.error); return; }
+      if(d.error){ showError(d.error); holdingsCache.forEach(function(h){ if(h.ticker===ticker) cell.textContent = fmt$(h.dollar_amount); }); return; }
       holdingsCache.forEach(function(h){ if(h.ticker===ticker) h.dollar_amount = val; });
+      if(d.budget !== undefined) updateBankDisplay(d.budget, d.bank_balance);
       renderHoldingsTable(holdingsCache, metricsCache);
     }).catch(function(e){ showError("Request failed: " + e); });
   }
@@ -1079,15 +1456,14 @@
     var newName = inp.value.trim();
     if(!newName || newName === _renamePrevName) { inp.value = _renamePrevName; return; }
     if(!activePortfolioId) return;
-    fetch("/portfolio_builder/portfolios/"+activePortfolioId, {
+    fetch("/portfolio_simulator/portfolios/"+activePortfolioId, {
       method: "PATCH",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({name:newName, notes:""})
+      body: JSON.stringify({name:newName, notes:"", budget:activePortfolioBudget})
     }).then(function(r){ return r.json(); }).then(function(d){
       if(d.error){ showError(d.error); inp.value = _renamePrevName; return; }
       activePortfolioName = newName;
       _renamePrevName = newName;
-      // Update sidebar
       var item = document.getElementById("pb-item-"+activePortfolioId);
       if(item){
         var nameEl = item.querySelector(".pb-port-name");
@@ -1111,6 +1487,133 @@
     }
   }
 
+  // ── Budget edit modal ──────────────────────────────────────────────────────
+  window.openBudgetEdit = function(){
+    document.getElementById("pb-budget-input").value = activePortfolioBudget !== null ? activePortfolioBudget : "";
+    document.getElementById("pb-budget-modal-overlay").classList.add("pb-modal-open");
+    setTimeout(function(){ document.getElementById("pb-budget-input").focus(); }, 80);
+  };
+  window.closeBudgetModal = function(){
+    document.getElementById("pb-budget-modal-overlay").classList.remove("pb-modal-open");
+  };
+  document.getElementById("pb-budget-modal-overlay").addEventListener("click", function(e){
+    if(e.target === this) closeBudgetModal();
+  });
+  document.getElementById("pb-budget-input").addEventListener("keydown", function(e){
+    if(e.key==="Enter"){ e.preventDefault(); saveBudget(); }
+    if(e.key==="Escape") closeBudgetModal();
+  });
+  window.saveBudget = function(){
+    if(!activePortfolioId) return;
+    var raw = document.getElementById("pb-budget-input").value.trim();
+    var newBudget = raw !== "" ? parseFloat(raw) : null;
+    if(newBudget !== null && (isNaN(newBudget) || newBudget <= 0)){
+      alert("Enter a positive budget amount, or leave blank to remove budget.");
+      return;
+    }
+    var nameEl = document.getElementById("pb-active-name");
+    fetch("/portfolio_simulator/portfolios/"+activePortfolioId, {
+      method: "PATCH",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({name: nameEl.value.trim() || activePortfolioName, notes:"", budget: newBudget})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){ alert("Error: " + d.error); return; }
+      closeBudgetModal();
+      // Re-fetch holdings to get fresh bank_balance at new budget
+      fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings")
+        .then(function(r2){ return r2.json(); })
+        .then(function(d2){
+          if(d2.error){ return; }
+          holdingsCache = d2.holdings || [];
+          updateBankDisplay(d2.budget, d2.bank_balance);
+          renderHoldingsTable(holdingsCache, metricsCache);
+        });
+    }).catch(function(e){ alert("Save failed: " + e); });
+  };
+
+  // ── Sell modal ─────────────────────────────────────────────────────────────
+  var sellSlider = document.getElementById("pb-sell-slider");
+  var sellPctInp = document.getElementById("pb-sell-pct");
+
+  function _updateSellEquiv(){
+    var pct = parseFloat(sellPctInp.value);
+    var equiv = document.getElementById("pb-sell-equiv");
+    if(!isNaN(pct) && pct > 0 && pct <= 100){
+      var dollars = pct / 100 * _sellDollarAmount;
+      if(pct >= 100){
+        equiv.textContent = "= " + fmt$(dollars) + " (holding will be removed)";
+      } else {
+        equiv.textContent = "= " + fmt$(dollars);
+      }
+    } else {
+      equiv.textContent = "";
+    }
+  }
+  sellSlider.addEventListener("input", function(){
+    sellPctInp.value = parseFloat(this.value).toFixed(1);
+    _updateSellEquiv();
+  });
+  sellPctInp.addEventListener("input", function(){
+    var v = parseFloat(this.value);
+    if(!isNaN(v) && v >= 0 && v <= 100) sellSlider.value = v;
+    _updateSellEquiv();
+  });
+  sellPctInp.addEventListener("keydown", function(e){
+    if(e.key==="Enter"){ e.preventDefault(); confirmSell(); }
+    if(e.key==="Escape") closeSellModal();
+  });
+  document.getElementById("pb-sell-overlay").addEventListener("click", function(e){
+    if(e.target === this) closeSellModal();
+  });
+
+  window.openSellModal = function(ticker, dollarAmount){
+    _sellTicker = ticker;
+    _sellDollarAmount = parseFloat(dollarAmount) || 0;
+    document.getElementById("pb-sell-ticker-label").textContent = ticker;
+    document.getElementById("pb-sell-holding-info").textContent = "Current allocation: " + fmt$(_sellDollarAmount);
+    sellSlider.value = 50;
+    sellPctInp.value = "50";
+    _updateSellEquiv();
+    document.getElementById("pb-sell-overlay").classList.add("pb-sell-open");
+    setTimeout(function(){ sellPctInp.focus(); sellPctInp.select(); }, 80);
+  };
+  window.closeSellModal = function(){
+    document.getElementById("pb-sell-overlay").classList.remove("pb-sell-open");
+    _sellTicker = null;
+  };
+  window.confirmSell = function(){
+    var pct = parseFloat(sellPctInp.value);
+    if(isNaN(pct) || pct <= 0 || pct > 100){
+      alert("Enter a sell percentage between 0.1 and 100.");
+      return;
+    }
+    if(!_sellTicker || !activePortfolioId) return;
+
+    fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings/"+_sellTicker+"/sell", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({sell_pct: pct})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){ alert("Error: " + d.error); return; }
+      closeSellModal();
+
+      if(d.new_dollar_amount === null || d.new_dollar_amount === undefined){
+        // Fully sold — remove from cache
+        holdingsCache = holdingsCache.filter(function(h){ return h.ticker !== d.ticker; });
+        delete metricsCache[d.ticker];
+        _updateSidebarCount(activePortfolioId, holdingsCache.length);
+      } else {
+        // Partial — update cached amount
+        holdingsCache.forEach(function(h){
+          if(h.ticker === d.ticker) h.dollar_amount = d.new_dollar_amount;
+        });
+      }
+      updateBankDisplay(d.budget, d.bank_balance);
+      renderHoldingsTable(holdingsCache, metricsCache);
+      syncScrollWidth();
+    }).catch(function(e){ alert("Sell failed: " + e); });
+  };
+
   // ── Analyze ────────────────────────────────────────────────────────────────
   window.analyzePortfolio = function(){
     if(!activePortfolioId) return;
@@ -1122,18 +1625,20 @@
     document.getElementById("pb-charts-section").style.display = "none";
     document.getElementById("pb-error").style.display = "none";
 
-    fetch("/portfolio_builder/portfolios/"+activePortfolioId+"/analyze?period="+activePeriod+"&benchmark="+bench)
+    fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/analyze?period="+activePeriod+"&benchmark="+bench)
       .then(function(r){ return r.json(); })
       .then(function(data){
         document.getElementById("pb-spinner").style.display = "none";
         if(data.error){ showError(data.error); return; }
 
-        // Build metrics map
         metricsCache = {};
         (data.holdings || []).forEach(function(h){ metricsCache[h.ticker] = h; });
 
+        var pm = data.portfolio_metrics || {};
+        if(pm.budget !== undefined) updateBankDisplay(pm.budget, pm.bank_balance);
+
         renderHoldingsTable(holdingsCache, metricsCache);
-        renderGradePanel(data.portfolio_metrics || {});
+        renderGradePanel(pm);
         renderCharts(data);
         syncScrollWidth();
       }).catch(function(e){
@@ -1167,7 +1672,6 @@
     document.getElementById("pb-stat-annual-inc").textContent = pm.annual_income ? fmt$(pm.annual_income) : "--";
     document.getElementById("pb-stat-monthly-inc").textContent = pm.monthly_income ? fmt$(pm.monthly_income) : "--";
 
-    // Breakdown bars
     var bd = g.breakdown || [];
     var html = "";
     bd.forEach(function(row){
@@ -1190,7 +1694,6 @@
     if(!validHoldings.length){ document.getElementById("pb-charts-section").style.display = "none"; return; }
     document.getElementById("pb-charts-section").style.display = "";
 
-    // Risk vs Return scatter
     var scatterEl = document.getElementById("pb-scatter-chart");
     Plotly.purge(scatterEl);
     var xVol = validHoldings.map(function(h){ return h.annual_vol; });
@@ -1220,7 +1723,6 @@
       margin:{t:45,r:20,b:55,l:60}
     }, {responsive:true});
 
-    // Correlation heatmap
     var corrEl = document.getElementById("pb-corr-chart");
     Plotly.purge(corrEl);
     if(data.correlation && data.correlation.labels.length > 1){
@@ -1249,7 +1751,6 @@
       corrEl.innerHTML = '<p style="color:#555;text-align:center;padding:3rem;font-size:0.85rem">Need 2+ tickers for correlation heatmap.</p>';
     }
 
-    // Drawdown
     var ddEl = document.getElementById("pb-drawdown-chart");
     Plotly.purge(ddEl);
     if(data.drawdown_series && data.drawdown_series.dates.length){
@@ -1277,13 +1778,11 @@
     document.querySelectorAll(".pb-compare-chk:checked").forEach(function(el){
       checked.push(parseInt(el.value));
     });
-    if(checked.length < 2){ alert("Select at least 2 portfolios to compare."); return; }
+    if(checked.length < 2){ alert("Select at least 2 simulations to compare."); return; }
 
     var period = document.getElementById("pb-compare-period").value;
     document.getElementById("pb-comp-section").style.display = "";
-
-    var compSection = document.getElementById("pb-comp-section");
-    compSection.scrollIntoView({behavior:"smooth", block:"start"});
+    document.getElementById("pb-comp-section").scrollIntoView({behavior:"smooth", block:"start"});
 
     var errEl = document.getElementById("pb-comp-error");
     errEl.style.display = "none";
@@ -1291,7 +1790,7 @@
     document.getElementById("pb-income-chart").innerHTML = "";
     document.getElementById("pb-comp-body").innerHTML = "";
 
-    fetch("/portfolio_builder/compare", {
+    fetch("/portfolio_simulator/compare", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({portfolio_ids: checked, period: period, benchmark: "SPY"})
@@ -1299,7 +1798,7 @@
     .then(function(data){
       if(data.error){ errEl.textContent = data.error; errEl.style.display = "block"; return; }
       var ports = data.portfolios || [];
-      if(!ports.length){ errEl.textContent = "No data returned — check that the selected portfolios have holdings."; errEl.style.display = "block"; return; }
+      if(!ports.length){ errEl.textContent = "No data returned — check that the selected simulations have holdings."; errEl.style.display = "block"; return; }
       renderComparisonCharts(ports);
       renderComparisonTable(ports);
     }).catch(function(e){
@@ -1311,7 +1810,6 @@
   function renderComparisonCharts(ports){
     var palette = ["#7ecfff","#00e89a","#f9a825","#ff8a50","#c084fc","#38bdf8","#fb923c"];
 
-    // ── Radar chart ─────────────────────────────────────────────────────────
     var radarEl = document.getElementById("pb-radar-chart");
     Plotly.purge(radarEl);
     radarEl.innerHTML = "";
@@ -1319,22 +1817,6 @@
     var keyMap = ["sharpe","sortino","calmar","omega","max_drawdown","down_capture","diversification"];
 
     var traces = ports.map(function(p, i){
-      var scores = keyMap.map(function(k){ return p.breakdown_scores && p.breakdown_scores[k] !== null ? p.breakdown_scores[k] : 0; });
-      scores.push(scores[0]); // close the shape
-      return {
-        type: "scatterpolar",
-        r: scores,
-        theta: axes.concat([axes[0]]),
-        fill: "toself",
-        fillcolor: palette[i % palette.length].replace(")", ",0.15)").replace("rgb","rgba").replace("#", "rgba(").replace(",0.15)","") + (palette[i%palette.length].startsWith("#") ? ("," + parseInt(palette[i%palette.length].slice(1,3),16)+","+parseInt(palette[i%palette.length].slice(3,5),16)+","+parseInt(palette[i%palette.length].slice(5,7),16)+",0.12)").replace("rgba(,","rgba(") : ""),
-        line: {color: palette[i % palette.length], width: 2},
-        name: p.name,
-        hovertemplate: "<b>"+_escHtml(p.name)+"</b><br>%{theta}: %{r:.1f}<extra></extra>"
-      };
-    });
-
-    // Fix fillcolor — just use opacity approach cleanly
-    traces = ports.map(function(p, i){
       var scores = keyMap.map(function(k){ return p.breakdown_scores && p.breakdown_scores[k] !== null ? p.breakdown_scores[k] : 0; });
       scores.push(scores[0]);
       return {
@@ -1361,7 +1843,6 @@
       margin: {t:50,r:40,b:40,l:40}
     }, {responsive:true});
 
-    // ── Monthly income bar chart ──────────────────────────────────────────────
     var incEl = document.getElementById("pb-income-chart");
     Plotly.purge(incEl);
     var names = ports.map(function(p){ return p.name; });
