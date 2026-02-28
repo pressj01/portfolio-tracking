@@ -6437,9 +6437,29 @@ def portfolio_simulator():
         """, conn, params=[pid])
     except Exception:
         portfolios = pd.DataFrame(columns=["id", "name", "notes", "budget", "updated_at", "holding_count"])
+
+    # Account tickers for the import panel (server-rendered, no AJAX needed)
+    try:
+        acc_df = pd.read_sql("""
+            SELECT ticker, current_value
+            FROM dbo.all_account_info
+            WHERE profile_id = ?
+              AND purchase_value IS NOT NULL AND purchase_value > 0
+            ORDER BY ticker
+        """, conn, params=[pid])
+        account_tickers = [
+            {"ticker": r["ticker"],
+             "current_value": r["current_value"] if r["current_value"] == r["current_value"] else None}
+            for r in acc_df.to_dict("records")
+        ]
+    except Exception:
+        account_tickers = []
+
     conn.close()
     port_list = portfolios.to_dict("records") if not portfolios.empty else []
-    return render_template("portfolio_simulator.html", portfolios=port_list)
+    return render_template("portfolio_simulator.html",
+                           portfolios=port_list,
+                           account_tickers=account_tickers)
 
 
 @app.route("/portfolio_simulator/portfolios", methods=["POST"])

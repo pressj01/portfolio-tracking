@@ -885,17 +885,26 @@
       </div>
 
       <!-- Import from account panel -->
-      <button class="pb-import-toggle" id="pb-import-toggle" onclick="toggleImportPanel()" style="display:none">
-        ↓ From Account
+      {% if account_tickers %}
+      <button class="pb-import-toggle" id="pb-import-toggle" onclick="toggleImportPanel()">
+        ↓ From Account ({{ account_tickers|length }})
       </button>
-      <div class="pb-import-panel" id="pb-import-panel">
+      <div class="pb-import-panel" id="pb-import-panel" style="display:none">
         <div class="pb-import-panel-hdr">
-          <span>Select tickers to buy:</span>
+          <span>Select tickers to buy — {{ account_tickers|length }} holdings in your account:</span>
           <button onclick="selectAllImport()">Select all</button>
           <button onclick="clearImport()">Clear all</button>
         </div>
         <div class="pb-import-grid" id="pb-import-grid">
-          <span style="color:#555;font-size:0.78rem">Loading…</span>
+          {% for t in account_tickers %}
+          <label class="pb-import-item" id="pb-imp-lbl-{{ t.ticker }}">
+            <input type="checkbox" id="pb-imp-{{ t.ticker }}" onchange="_onImportCheck()">
+            <span>
+              <strong>{{ t.ticker }}</strong>
+              {% if t.current_value %}<span class="pb-import-val">${{ "{:,.0f}".format(t.current_value) }}</span>{% endif %}
+            </span>
+          </label>
+          {% endfor %}
         </div>
         <div class="pb-import-controls">
           <span style="font-size:0.78rem;color:#888">$ per ticker:</span>
@@ -904,6 +913,7 @@
           <span class="pb-import-status" id="pb-import-status"></span>
         </div>
       </div>
+      {% endif %}
 
       <!-- Top scrollbar for holdings table (sync) -->
       <div class="pb-table-scroll-top" id="pb-scroll-top">
@@ -1372,12 +1382,12 @@
     document.getElementById("pb-grade-section").style.display = "none";
     document.getElementById("pb-charts-section").style.display = "none";
     document.getElementById("pb-error").style.display = "none";
-    document.getElementById("pb-import-toggle").style.display = "";
-    // Reset import panel state on portfolio switch
-    _importLoaded = false;
+    // Collapse import panel on portfolio switch
     _importPanelOpen = false;
-    document.getElementById("pb-import-panel").style.display = "none";
-    document.getElementById("pb-import-toggle").textContent = "↓ From Account";
+    var _impPanel = document.getElementById("pb-import-panel");
+    var _impBtn   = document.getElementById("pb-import-toggle");
+    if(_impPanel) _impPanel.style.display = "none";
+    if(_impBtn)   _impBtn.textContent = "↓ From Account ({{ account_tickers|length }})";
     metricsCache = {};
 
     fetch("/portfolio_simulator/portfolios/"+id+"/holdings")
@@ -1451,7 +1461,6 @@
   }
 
   // ── Import from account panel ──────────────────────────────────────────────
-  var _importLoaded = false;
   var _importPanelOpen = false;
 
   window.toggleImportPanel = function(){
@@ -1459,38 +1468,10 @@
     _importPanelOpen = !_importPanelOpen;
     var panel = document.getElementById("pb-import-panel");
     var btn   = document.getElementById("pb-import-toggle");
-    panel.style.display = _importPanelOpen ? "" : "none";
-    btn.textContent = (_importPanelOpen ? "↑" : "↓") + " From Account";
-    if(_importPanelOpen && !_importLoaded) _loadAccountHoldings();
+    if(panel) panel.style.display = _importPanelOpen ? "" : "none";
+    if(btn) btn.textContent = (_importPanelOpen ? "↑" : "↓") + " From Account ({{ account_tickers|length }})";
+    if(_importPanelOpen) _updateImportBtn();
   };
-
-  function _loadAccountHoldings(){
-    fetch("/portfolio_simulator/account_holdings")
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        _importLoaded = true;
-        _renderImportGrid(data);
-      }).catch(function(){ document.getElementById("pb-import-grid").innerHTML = '<span style="color:#ff5252;font-size:0.78rem">Failed to load holdings.</span>'; });
-  }
-
-  function _renderImportGrid(tickers){
-    var grid = document.getElementById("pb-import-grid");
-    if(!tickers || !tickers.length){
-      grid.innerHTML = '<span style="color:#888;font-size:0.78rem">No holdings found — import data first via the Dashboard.</span>';
-      return;
-    }
-    var html = "";
-    tickers.forEach(function(t){
-      var val = t.current_value ? ("$" + parseFloat(t.current_value).toLocaleString("en-US", {maximumFractionDigits:0})) : "";
-      html += '<label class="pb-import-item" id="pb-imp-lbl-'+t.ticker+'">'
-            + '<input type="checkbox" id="pb-imp-'+t.ticker+'" onchange="_onImportCheck()">'
-            + '<span><strong>'+t.ticker+'</strong>'
-            + (val ? '<span class="pb-import-val">'+val+'</span>' : '')
-            + '</span></label>';
-    });
-    grid.innerHTML = html;
-    _updateImportBtn();
-  }
 
   window._onImportCheck = function(){
     _updateImportBtn();
