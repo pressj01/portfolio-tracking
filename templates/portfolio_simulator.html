@@ -425,6 +425,97 @@
 }
 .pb-sell-holding:hover { color: #ffc107; }
 
+/* Import from account panel */
+.pb-import-toggle {
+  background: none;
+  border: 1px solid #2a2a4a;
+  border-radius: 4px;
+  color: #7ecfff;
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.65rem;
+  margin-top: 0.5rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pb-import-toggle:hover { background: #0d0d2a; border-color: #7ecfff; }
+.pb-import-panel {
+  display: none;
+  background: #0a0a1e;
+  border: 1px solid #1e1e3a;
+  border-radius: 6px;
+  padding: 0.75rem 0.85rem 0.85rem;
+  margin-top: 0.5rem;
+}
+.pb-import-panel-hdr {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.75rem;
+  color: #666;
+}
+.pb-import-panel-hdr button {
+  background: none;
+  border: none;
+  color: #7ecfff;
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0;
+  text-decoration: underline;
+}
+.pb-import-panel-hdr button:hover { color: #fff; }
+.pb-import-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.3rem 0.5rem;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 0.7rem;
+  padding-right: 4px;
+}
+.pb-import-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: #bbb;
+  cursor: pointer;
+  padding: 0.2rem 0.3rem;
+  border-radius: 3px;
+}
+.pb-import-item:hover { background: #111128; }
+.pb-import-item input[type=checkbox] { accent-color: #7ecfff; cursor: pointer; margin-top: 2px; flex-shrink: 0; }
+.pb-import-item.checked { color: #7ecfff; }
+.pb-import-val { font-size: 0.65rem; color: #555; display: block; }
+.pb-import-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.pb-import-amount {
+  width: 130px;
+  background: #111124;
+  border: 1px solid #2a2a4a;
+  border-radius: 4px;
+  color: #fff;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.8rem;
+}
+.pb-import-amount:focus { outline: none; border-color: #7ecfff; }
+.pb-import-buy {
+  background: #0d2a1a;
+  border: 1px solid #00e89a44;
+  border-radius: 4px;
+  color: #00e89a;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.28rem 0.75rem;
+}
+.pb-import-buy:hover { background: #0d3a22; }
+.pb-import-buy:disabled { opacity: 0.4; cursor: default; }
+.pb-import-status { font-size: 0.75rem; color: #00e89a; display: none; }
+
 /* Score bar */
 .pb-score-bar-wrap {
   flex: 1; height: 10px; background: #1a1a2e; border-radius: 3px; overflow: hidden; min-width: 38px;
@@ -791,6 +882,27 @@
         <button class="pb-add-submit" onclick="addHolding()">＋ Buy</button>
         <span id="pb-add-avail" class="pb-add-avail" style="display:none"></span>
         <span id="pb-add-status" style="font-size:0.78rem;color:#00e89a;display:none"></span>
+      </div>
+
+      <!-- Import from account panel -->
+      <button class="pb-import-toggle" id="pb-import-toggle" onclick="toggleImportPanel()" style="display:none">
+        ↓ From Account
+      </button>
+      <div class="pb-import-panel" id="pb-import-panel">
+        <div class="pb-import-panel-hdr">
+          <span>Select tickers to buy:</span>
+          <button onclick="selectAllImport()">Select all</button>
+          <button onclick="clearImport()">Clear all</button>
+        </div>
+        <div class="pb-import-grid" id="pb-import-grid">
+          <span style="color:#555;font-size:0.78rem">Loading…</span>
+        </div>
+        <div class="pb-import-controls">
+          <span style="font-size:0.78rem;color:#888">$ per ticker:</span>
+          <input class="pb-import-amount" id="pb-import-amount" type="number" placeholder="Amount" min="0" step="100">
+          <button class="pb-import-buy" id="pb-import-buy" onclick="importSelected()" disabled>＋ Buy Selected (0)</button>
+          <span class="pb-import-status" id="pb-import-status"></span>
+        </div>
       </div>
 
       <!-- Top scrollbar for holdings table (sync) -->
@@ -1260,6 +1372,12 @@
     document.getElementById("pb-grade-section").style.display = "none";
     document.getElementById("pb-charts-section").style.display = "none";
     document.getElementById("pb-error").style.display = "none";
+    document.getElementById("pb-import-toggle").style.display = "";
+    // Reset import panel state on portfolio switch
+    _importLoaded = false;
+    _importPanelOpen = false;
+    document.getElementById("pb-import-panel").style.display = "none";
+    document.getElementById("pb-import-toggle").textContent = "↓ From Account";
     metricsCache = {};
 
     fetch("/portfolio_simulator/portfolios/"+id+"/holdings")
@@ -1331,6 +1449,144 @@
     body.innerHTML = html;
     setTimeout(syncScrollWidth, 50);
   }
+
+  // ── Import from account panel ──────────────────────────────────────────────
+  var _importLoaded = false;
+  var _importPanelOpen = false;
+
+  window.toggleImportPanel = function(){
+    if(!activePortfolioId){ alert("Select or create a simulation first."); return; }
+    _importPanelOpen = !_importPanelOpen;
+    var panel = document.getElementById("pb-import-panel");
+    var btn   = document.getElementById("pb-import-toggle");
+    panel.style.display = _importPanelOpen ? "" : "none";
+    btn.textContent = (_importPanelOpen ? "↑" : "↓") + " From Account";
+    if(_importPanelOpen && !_importLoaded) _loadAccountHoldings();
+  };
+
+  function _loadAccountHoldings(){
+    fetch("/portfolio_simulator/account_holdings")
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        _importLoaded = true;
+        _renderImportGrid(data);
+      }).catch(function(){ document.getElementById("pb-import-grid").innerHTML = '<span style="color:#ff5252;font-size:0.78rem">Failed to load holdings.</span>'; });
+  }
+
+  function _renderImportGrid(tickers){
+    var grid = document.getElementById("pb-import-grid");
+    if(!tickers || !tickers.length){
+      grid.innerHTML = '<span style="color:#555;font-size:0.78rem">No holdings found in current account.</span>';
+      return;
+    }
+    var html = "";
+    tickers.forEach(function(t){
+      var val = t.current_value ? ("$" + parseFloat(t.current_value).toLocaleString("en-US", {maximumFractionDigits:0})) : "";
+      html += '<label class="pb-import-item" id="pb-imp-lbl-'+t.ticker+'">'
+            + '<input type="checkbox" id="pb-imp-'+t.ticker+'" onchange="_onImportCheck()">'
+            + '<span><strong>'+t.ticker+'</strong>'
+            + (val ? '<span class="pb-import-val">'+val+'</span>' : '')
+            + '</span></label>';
+    });
+    grid.innerHTML = html;
+    _updateImportBtn();
+  }
+
+  window._onImportCheck = function(){
+    _updateImportBtn();
+  };
+
+  function _updateImportBtn(){
+    var checked = document.querySelectorAll("#pb-import-grid input[type=checkbox]:checked").length;
+    var btn = document.getElementById("pb-import-buy");
+    btn.textContent = "＋ Buy Selected (" + checked + ")";
+    btn.disabled = checked === 0;
+    // highlight checked labels
+    document.querySelectorAll("#pb-import-grid .pb-import-item").forEach(function(lbl){
+      var cb = lbl.querySelector("input");
+      lbl.classList.toggle("checked", cb && cb.checked);
+    });
+  }
+
+  window.selectAllImport = function(){
+    document.querySelectorAll("#pb-import-grid input[type=checkbox]").forEach(function(cb){ cb.checked = true; });
+    _updateImportBtn();
+  };
+  window.clearImport = function(){
+    document.querySelectorAll("#pb-import-grid input[type=checkbox]").forEach(function(cb){ cb.checked = false; });
+    _updateImportBtn();
+  };
+
+  // Core fetch for a single ticker — returns Promise resolving to response JSON
+  function _addHoldingRaw(ticker, dollars){
+    return fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ticker: ticker, dollar_amount: dollars})
+    }).then(function(r){ return r.json(); });
+  }
+
+  window.importSelected = function(){
+    if(!activePortfolioId){ alert("Select or create a simulation first."); return; }
+    var dollars = parseFloat(document.getElementById("pb-import-amount").value);
+    if(!dollars || dollars <= 0){ alert("Enter a positive dollar amount per ticker."); return; }
+
+    var checked = [];
+    document.querySelectorAll("#pb-import-grid input[type=checkbox]:checked").forEach(function(cb){
+      checked.push(cb.id.replace("pb-imp-", ""));
+    });
+    if(!checked.length){ return; }
+
+    var statusEl = document.getElementById("pb-import-status");
+    var buyBtn   = document.getElementById("pb-import-buy");
+    buyBtn.disabled = true;
+    statusEl.style.color = "#7ecfff";
+    statusEl.textContent = "Importing…";
+    statusEl.style.display = "inline";
+
+    // Sequential import to respect budget and get accurate bank balance updates
+    var imported = 0;
+    var stoppedErr = null;
+
+    (function next(i){
+      if(i >= checked.length){
+        // Reload holdings to refresh table + bank display
+        fetch("/portfolio_simulator/portfolios/"+activePortfolioId+"/holdings")
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            holdingsCache = d.holdings || [];
+            updateBankDisplay(d.budget, d.bank_balance);
+            renderHoldingsTable(holdingsCache, metricsCache);
+            _updateSidebarCount(activePortfolioId, holdingsCache.length);
+          });
+        statusEl.style.color = stoppedErr ? "#f9a825" : "#00e89a";
+        statusEl.textContent = stoppedErr
+          ? "Imported " + imported + " — stopped: " + stoppedErr
+          : "Imported " + imported + " ticker" + (imported !== 1 ? "s" : "") + " ✓";
+        buyBtn.disabled = false;
+        _updateImportBtn();
+        setTimeout(function(){ statusEl.style.display = "none"; }, 4000);
+        return;
+      }
+      var t = checked[i];
+      _addHoldingRaw(t, dollars).then(function(d){
+        if(d.error){
+          stoppedErr = d.error;
+          next(checked.length); // jump to done
+        } else {
+          imported++;
+          statusEl.textContent = "Importing " + t + "… (" + imported + "/" + checked.length + ")";
+          var idx = holdingsCache.findIndex(function(h){ return h.ticker === t; });
+          if(idx >= 0) holdingsCache[idx].dollar_amount = dollars;
+          else holdingsCache.push({ticker: t, dollar_amount: dollars});
+          next(i + 1);
+        }
+      }).catch(function(){
+        stoppedErr = "network error on " + t;
+        next(checked.length);
+      });
+    })(0);
+  };
 
   // ── Add holding (Buy) ──────────────────────────────────────────────────────
   window.addHolding = function(){

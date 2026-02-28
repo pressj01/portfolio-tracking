@@ -7258,6 +7258,22 @@ def sim_compare():
     return jsonify({"portfolios": results})
 
 
+@app.route("/portfolio_simulator/account_holdings")
+def sim_account_holdings():
+    """AJAX: return tickers held in the active profile for the import panel."""
+    pid = get_profile_id()
+    conn = get_connection()
+    df = pd.read_sql("""
+        SELECT ticker, current_value, current_price, quantity
+        FROM dbo.all_account_info
+        WHERE profile_id = ?
+          AND current_value IS NOT NULL AND current_value > 0
+        ORDER BY ticker
+    """, conn, params=[pid])
+    conn.close()
+    return jsonify(df.to_dict('records'))
+
+
 # ── Profile management routes ─────────────────────────────────────────────────
 
 @app.route("/profiles")
