@@ -576,6 +576,15 @@
         <span id="pb-add-status" style="font-size:0.78rem;color:#00e89a;display:none"></span>
       </div>
 
+      <!-- Total invested summary -->
+      <div id="pb-total-strip" style="display:none;font-size:0.82rem;color:#aaa;margin:0.4rem 0 0.1rem;padding:0.3rem 0.4rem;background:#0a0a18;border-radius:4px;border:1px solid #1a1a30">
+        <span style="color:#666">Total Invested:</span>
+        <strong style="color:#7ecfff" id="pb-total-invested">$0</strong>
+        <span style="color:#444;margin:0 0.5rem">·</span>
+        <span style="color:#666">Holdings:</span>
+        <strong style="color:#ddd" id="pb-total-count">0</strong>
+      </div>
+
       <!-- Top scrollbar for holdings table (sync) -->
       <div class="pb-table-scroll-top" id="pb-scroll-top">
         <div class="pb-table-scroll-top-inner" id="pb-scroll-top-inner"></div>
@@ -919,13 +928,22 @@
   // ── Render holdings table ─────────────────────────────────────────────────
   function renderHoldingsTable(holdings, metricsMap){
     var body = document.getElementById("pb-holdings-body");
+    var strip = document.getElementById("pb-total-strip");
     if(!holdings || !holdings.length){
       body.innerHTML = '<tr><td colspan="21" class="pb-empty" style="padding:1.5rem">No holdings yet — add a ticker above.</td></tr>';
+      if(strip) strip.style.display = "none";
       return;
     }
 
     // Total $ for weight calc
     var total$ = holdings.reduce(function(s,h){ return s + (parseFloat(h.dollar_amount)||0); }, 0);
+
+    // Update total invested strip
+    if(strip){
+      document.getElementById("pb-total-invested").textContent = fmt$(total$);
+      document.getElementById("pb-total-count").textContent = holdings.length;
+      strip.style.display = "";
+    }
 
     var html = "";
     holdings.forEach(function(h){
