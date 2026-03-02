@@ -1232,7 +1232,7 @@
       else cmp = (va < vb ? -1 : (va > vb ? 1 : 0));
       return _sortAsc ? cmp : -cmp;
     });
-    _applySortAndRender();
+    renderHoldingsTable(holdingsCache, metricsCache);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
