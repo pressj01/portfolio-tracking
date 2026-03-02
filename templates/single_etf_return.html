@@ -517,11 +517,22 @@ td.num { text-align:right; }
         });
     });
 
+    function clearChartAndStats() {
+        var el = document.getElementById('etf-chart');
+        Plotly.purge(el);
+        el.innerHTML = '';
+        document.getElementById('chart-area').style.display = 'none';
+        document.getElementById('stats-grid').innerHTML = '';
+        document.getElementById('pos-grid').innerHTML = '';
+        var warnEl = document.getElementById('warnings-area');
+        if (warnEl) warnEl.style.display = 'none';
+    }
+
     function loadChart() {
         var t1 = tickerSelect ? tickerSelect.value.trim() : '';
         var extraStr = extraTickers.map(function(t){ return t.sym; }).join(',');
         if (!t1 && !extraStr) {
-            showError('Please select at least one ticker.');
+            clearChartAndStats();
             return;
         }
 
