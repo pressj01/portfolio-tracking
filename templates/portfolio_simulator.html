@@ -317,6 +317,13 @@
 .pb-table td:first-child { text-align: left; font-weight: 600; color: #7ecfff; }
 .pb-table tbody tr:hover { background: #0f0f22; }
 
+/* Sortable column headers */
+.pb-table th[data-sort-key] { cursor: pointer; padding-right: 1rem; }
+.pb-table th[data-sort-key]:hover { color: #fff; }
+.pb-table th[data-sort-key]::before { content: "⇅"; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); font-size: 0.6rem; color: #444; }
+.pb-table th[data-sort-key].sort-asc::before { content: "▲"; color: #7ecfff; }
+.pb-table th[data-sort-key].sort-desc::before { content: "▼"; color: #7ecfff; }
+
 /* Column header tooltips */
 .pb-table th[data-tip] { cursor: help; }
 .pb-table th[data-tip]:hover { z-index: 100; }
@@ -924,26 +931,26 @@
         <table class="pb-table" id="pb-holdings-table">
           <thead>
             <tr>
-              <th style="text-align:left;min-width:65px">Ticker</th>
-              <th style="min-width:40px;text-align:center" data-tip="Letter grade (A–F) derived from the composite score.&#10;Weights: Sharpe 30 · Sortino 20 · Calmar 15&#10;Omega 15 · Max DD 15 · Dn Cap 5">Grade</th>
-              <th style="min-width:90px" data-tip="Composite score 0–100 from six risk-adjusted metrics.&#10;Higher = better overall risk/return profile.&#10;Bar colour: green ≥ 70, orange ≥ 50, red &lt; 50">Score</th>
-              <th style="min-width:80px" data-tip="Dollar amount allocated to this holding.&#10;Click the value to edit inline.&#10;Budget mode: total cannot exceed your budget.">$ Amount</th>
-              <th data-tip="Estimated share count = $ Amount ÷ current price.&#10;Fractional shares are supported.">Shares</th>
-              <th data-tip="Portfolio weight: this holding's $ Amount ÷ total portfolio value.&#10;All weights should sum to 100%.">Wt%</th>
-              <th data-tip="Sharpe Ratio — risk-adjusted return.&#10;Formula: (annualised return − risk-free rate) ÷ annualised volatility.&#10;Thresholds: &gt; 1.5 = excellent · &gt; 1.0 = good · &gt; 0.5 = fair · ≤ 0 = poor">Sharpe</th>
-              <th data-tip="Sortino Ratio — like Sharpe but only penalises downside volatility.&#10;Ignores upside swings, so it's a better measure for income assets.&#10;Thresholds: &gt; 2.0 = excellent · &gt; 1.5 = good · &gt; 1.0 = fair">Sortino</th>
-              <th data-tip="Calmar Ratio — annual return divided by maximum drawdown.&#10;Measures how much return you earn per unit of peak-to-trough loss.&#10;Thresholds: &gt; 1.5 = excellent · &gt; 1.0 = good · &gt; 0.5 = fair">Calmar</th>
-              <th data-tip="Omega Ratio — total gains above zero divided by total losses below zero.&#10;&gt; 1.0 means gains outweigh losses. &gt; 1.5 is considered good.&#10;Includes ALL return observations, not just averages.">Omega</th>
-              <th data-tip="Up-Capture — % of the benchmark's UP-moves this holding captured.&#10;100 = moves in lockstep with benchmark on good days.&#10;&gt; 100 = amplifies gains; 60–100 is a normal range.">Up Cap</th>
-              <th data-tip="Down-Capture — % of the benchmark's DOWN-moves this holding experienced.&#10;Lower is better: &lt; 90 means it falls less than the market on bad days.&#10;"Defensive" assets often have Dn Cap &lt; 70.">Dn Cap</th>
-              <th data-tip="Annualised Return % over the selected analysis period.&#10;Calculated as (end/start)^(252/days) − 1, using adjusted close prices.">Ann Ret%</th>
-              <th data-tip="Annualised Volatility % — standard deviation of daily returns × √252.&#10;Measures how much the price swings day to day.&#10;Lower = smoother ride; income ETFs typically 10–25%.">Ann Vol%</th>
-              <th data-tip="Maximum Drawdown % — largest peak-to-trough decline in the period.&#10;Shows the worst-case loss an investor could have experienced.&#10;Less negative is better; e.g. −15% is better than −40%.">Max DD%</th>
-              <th data-tip="52-Week High — highest unadjusted price over the past 52 weeks.&#10;Helps gauge where the price sits relative to its recent peak.">52w High</th>
-              <th data-tip="52-Week Low — lowest unadjusted price over the past 52 weeks.&#10;Helps gauge where the price sits relative to its recent trough.">52w Low</th>
-              <th data-tip="Estimated Annual Dividend Income from this holding.&#10;Formula: ($ Amount ÷ price) × (dividend per share × frequency).">Ann Inc</th>
-              <th data-tip="Estimated Monthly Dividend Income = Annual Income ÷ 12.&#10;Useful for comparing monthly cash-flow across holdings.">Mon Inc</th>
-              <th data-tip="Dividend Yield % = annual dividends per share ÷ current price × 100.&#10;High yield can mean high income OR elevated risk — check Ann Ret%.">Yield%</th>
+              <th style="text-align:left;min-width:65px" data-sort-key="ticker" onclick="sortTable('ticker')" class="sort-asc">Ticker</th>
+              <th style="min-width:40px;text-align:center" data-sort-key="grade" onclick="sortTable('grade')" data-tip="Letter grade (A–F) derived from the composite score.&#10;Weights: Sharpe 30 · Sortino 20 · Calmar 15&#10;Omega 15 · Max DD 15 · Dn Cap 5">Grade</th>
+              <th style="min-width:90px" data-sort-key="score" onclick="sortTable('score')" data-tip="Composite score 0–100 from six risk-adjusted metrics.&#10;Higher = better overall risk/return profile.&#10;Bar colour: green ≥ 70, orange ≥ 50, red &lt; 50">Score</th>
+              <th style="min-width:80px" data-sort-key="dollar_amount" onclick="sortTable('dollar_amount')" data-tip="Dollar amount allocated to this holding.&#10;Click the value to edit inline.&#10;Budget mode: total cannot exceed your budget.">$ Amount</th>
+              <th data-sort-key="shares" onclick="sortTable('shares')" data-tip="Estimated share count = $ Amount ÷ current price.&#10;Fractional shares are supported.">Shares</th>
+              <th data-sort-key="wt" onclick="sortTable('wt')" data-tip="Portfolio weight: this holding's $ Amount ÷ total portfolio value.&#10;All weights should sum to 100%.">Wt%</th>
+              <th data-sort-key="sharpe" onclick="sortTable('sharpe')" data-tip="Sharpe Ratio — risk-adjusted return.&#10;Formula: (annualised return − risk-free rate) ÷ annualised volatility.&#10;Thresholds: &gt; 1.5 = excellent · &gt; 1.0 = good · &gt; 0.5 = fair · ≤ 0 = poor">Sharpe</th>
+              <th data-sort-key="sortino" onclick="sortTable('sortino')" data-tip="Sortino Ratio — like Sharpe but only penalises downside volatility.&#10;Ignores upside swings, so it's a better measure for income assets.&#10;Thresholds: &gt; 2.0 = excellent · &gt; 1.5 = good · &gt; 1.0 = fair">Sortino</th>
+              <th data-sort-key="calmar" onclick="sortTable('calmar')" data-tip="Calmar Ratio — annual return divided by maximum drawdown.&#10;Measures how much return you earn per unit of peak-to-trough loss.&#10;Thresholds: &gt; 1.5 = excellent · &gt; 1.0 = good · &gt; 0.5 = fair">Calmar</th>
+              <th data-sort-key="omega" onclick="sortTable('omega')" data-tip="Omega Ratio — total gains above zero divided by total losses below zero.&#10;&gt; 1.0 means gains outweigh losses. &gt; 1.5 is considered good.&#10;Includes ALL return observations, not just averages.">Omega</th>
+              <th data-sort-key="up_capture" onclick="sortTable('up_capture')" data-tip="Up-Capture — % of the benchmark's UP-moves this holding captured.&#10;100 = moves in lockstep with benchmark on good days.&#10;&gt; 100 = amplifies gains; 60–100 is a normal range.">Up Cap</th>
+              <th data-sort-key="down_capture" onclick="sortTable('down_capture')" data-tip="Down-Capture — % of the benchmark's DOWN-moves this holding experienced.&#10;Lower is better: &lt; 90 means it falls less than the market on bad days.&#10;"Defensive" assets often have Dn Cap &lt; 70.">Dn Cap</th>
+              <th data-sort-key="annual_ret" onclick="sortTable('annual_ret')" data-tip="Annualised Return % over the selected analysis period.&#10;Calculated as (end/start)^(252/days) − 1, using adjusted close prices.">Ann Ret%</th>
+              <th data-sort-key="annual_vol" onclick="sortTable('annual_vol')" data-tip="Annualised Volatility % — standard deviation of daily returns × √252.&#10;Measures how much the price swings day to day.&#10;Lower = smoother ride; income ETFs typically 10–25%.">Ann Vol%</th>
+              <th data-sort-key="max_drawdown" onclick="sortTable('max_drawdown')" data-tip="Maximum Drawdown % — largest peak-to-trough decline in the period.&#10;Shows the worst-case loss an investor could have experienced.&#10;Less negative is better; e.g. −15% is better than −40%.">Max DD%</th>
+              <th data-sort-key="week52_high" onclick="sortTable('week52_high')" data-tip="52-Week High — highest unadjusted price over the past 52 weeks.&#10;Helps gauge where the price sits relative to its recent peak.">52w High</th>
+              <th data-sort-key="week52_low" onclick="sortTable('week52_low')" data-tip="52-Week Low — lowest unadjusted price over the past 52 weeks.&#10;Helps gauge where the price sits relative to its recent trough.">52w Low</th>
+              <th data-sort-key="annual_income" onclick="sortTable('annual_income')" data-tip="Estimated Annual Dividend Income from this holding.&#10;Formula: ($ Amount ÷ price) × (dividend per share × frequency).">Ann Inc</th>
+              <th data-sort-key="monthly_income" onclick="sortTable('monthly_income')" data-tip="Estimated Monthly Dividend Income = Annual Income ÷ 12.&#10;Useful for comparing monthly cash-flow across holdings.">Mon Inc</th>
+              <th data-sort-key="annual_yield_pct" onclick="sortTable('annual_yield_pct')" data-tip="Dividend Yield % = annual dividends per share ÷ current price × 100.&#10;High yield can mean high income OR elevated risk — check Ann Ret%.">Yield%</th>
               <th style="text-align:center;min-width:48px"></th>
             </tr>
           </thead>
@@ -1178,6 +1185,55 @@
   var activePortfolioBudget = null;  // null = simple mode
   var _sellTicker = null;
   var _sellDollarAmount = 0;
+  var _sortKey = "ticker";
+  var _sortAsc = true;
+
+  // ── Sort ─────────────────────────────────────────────────────────────────
+  var _gradeOrder = {"A":5,"B":4,"C":3,"D":2,"F":1,"--":0};
+
+  function _sortVal(h, key){
+    if(key === "ticker") return h.ticker || "";
+    if(key === "dollar_amount") return parseFloat(h.dollar_amount) || 0;
+    if(key === "wt"){
+      var tot = holdingsCache.reduce(function(s,x){ return s+(parseFloat(x.dollar_amount)||0); },0);
+      return tot > 0 ? (parseFloat(h.dollar_amount)||0)/tot : 0;
+    }
+    var m = metricsCache[h.ticker] || {};
+    if(key === "grade") return _gradeOrder[m.grade] || 0;
+    if(key === "score") return (m.score !== undefined && m.score !== null) ? m.score : -Infinity;
+    if(key === "shares") return (m.shares !== undefined && m.shares !== null) ? parseFloat(m.shares) : -Infinity;
+    var v = m[key];
+    if(v === undefined || v === null) return -Infinity;
+    return parseFloat(v);
+  }
+
+  window.sortTable = function(key){
+    if(_sortKey === key){
+      _sortAsc = !_sortAsc;
+    } else {
+      _sortKey = key;
+      _sortAsc = (key === "ticker");
+    }
+    document.querySelectorAll(".pb-table th[data-sort-key]").forEach(function(th){
+      th.classList.remove("sort-asc","sort-desc");
+      if(th.getAttribute("data-sort-key") === _sortKey){
+        th.classList.add(_sortAsc ? "sort-asc" : "sort-desc");
+      }
+    });
+    _applySortAndRender();
+  };
+
+  function _applySortAndRender(){
+    holdingsCache.sort(function(a, b){
+      var va = _sortVal(a, _sortKey);
+      var vb = _sortVal(b, _sortKey);
+      var cmp;
+      if(typeof va === "string" && typeof vb === "string") cmp = va.localeCompare(vb);
+      else cmp = (va < vb ? -1 : (va > vb ? 1 : 0));
+      return _sortAsc ? cmp : -cmp;
+    });
+    _applySortAndRender();
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function fmt$(v){
@@ -1395,7 +1451,7 @@
         if(d.error){ showError(d.error); return; }
         holdingsCache = d.holdings || [];
         updateBankDisplay(d.budget, d.bank_balance);
-        renderHoldingsTable(holdingsCache, {});
+        _applySortAndRender();
         syncScrollWidth();
       }).catch(function(e){ showError("Failed to load holdings: " + e); });
   };
@@ -1536,7 +1592,7 @@
           .then(function(d){
             holdingsCache = d.holdings || [];
             updateBankDisplay(d.budget, d.bank_balance);
-            renderHoldingsTable(holdingsCache, metricsCache);
+            _applySortAndRender();
             _updateSidebarCount(activePortfolioId, holdingsCache.length);
           });
         statusEl.style.color = stoppedErr ? "#f9a825" : "#00e89a";
@@ -1601,7 +1657,7 @@
       if(existing >= 0) holdingsCache[existing].dollar_amount = dollars;
       else holdingsCache.push({ticker:ticker, dollar_amount:dollars});
       if(d.budget !== undefined) updateBankDisplay(d.budget, d.bank_balance);
-      renderHoldingsTable(holdingsCache, metricsCache);
+      _applySortAndRender();
       _updateSidebarCount(activePortfolioId, holdingsCache.length);
       var st = document.getElementById("pb-add-status");
       st.textContent = ticker + " bought"; st.style.display = "inline";
@@ -1631,7 +1687,7 @@
           .then(function(r2){ return r2.json(); })
           .then(function(d2){
             if(!d2.error){ updateBankDisplay(d2.budget, d2.bank_balance); }
-            renderHoldingsTable(holdingsCache, metricsCache);
+            _applySortAndRender();
             _updateSidebarCount(activePortfolioId, holdingsCache.length);
           });
       }).catch(function(e){ showError("Request failed: " + e); });
@@ -1668,7 +1724,7 @@
       if(d.error){ showError(d.error); holdingsCache.forEach(function(h){ if(h.ticker===ticker) cell.textContent = fmt$(h.dollar_amount); }); return; }
       holdingsCache.forEach(function(h){ if(h.ticker===ticker) h.dollar_amount = val; });
       if(d.budget !== undefined) updateBankDisplay(d.budget, d.bank_balance);
-      renderHoldingsTable(holdingsCache, metricsCache);
+      _applySortAndRender();
     }).catch(function(e){ showError("Request failed: " + e); });
   }
 
@@ -1762,7 +1818,7 @@
           if(d2.error){ return; }
           holdingsCache = d2.holdings || [];
           updateBankDisplay(d2.budget, d2.bank_balance);
-          renderHoldingsTable(holdingsCache, metricsCache);
+          _applySortAndRender();
         });
     }).catch(function(e){ alert("Save failed: " + e); });
   };
@@ -1845,7 +1901,7 @@
         });
       }
       updateBankDisplay(d.budget, d.bank_balance);
-      renderHoldingsTable(holdingsCache, metricsCache);
+      _applySortAndRender();
       syncScrollWidth();
     }).catch(function(e){ alert("Sell failed: " + e); });
   };
@@ -1873,7 +1929,7 @@
         var pm = data.portfolio_metrics || {};
         if(pm.budget !== undefined) updateBankDisplay(pm.budget, pm.bank_balance);
 
-        renderHoldingsTable(holdingsCache, metricsCache);
+        _applySortAndRender();
         renderGradePanel(pm);
         renderCharts(data);
         syncScrollWidth();

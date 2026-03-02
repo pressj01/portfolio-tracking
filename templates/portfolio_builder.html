@@ -289,6 +289,13 @@
 .pb-table td:first-child { text-align: left; font-weight: 600; color: #7ecfff; }
 .pb-table tbody tr:hover { background: #0f0f22; }
 
+/* Sortable column headers */
+.pb-table th[data-sort-key] { cursor: pointer; position: relative; padding-right: 1rem; }
+.pb-table th[data-sort-key]:hover { color: #fff; }
+.pb-table th[data-sort-key]::after { content: "⇅"; position: absolute; right: 2px; font-size: 0.6rem; color: #444; }
+.pb-table th[data-sort-key].sort-asc::after { content: "▲"; color: #7ecfff; }
+.pb-table th[data-sort-key].sort-desc::after { content: "▼"; color: #7ecfff; }
+
 /* Inline dollar edit */
 .pb-dollar-cell { cursor: pointer; position: relative; }
 .pb-dollar-cell:hover::after {
@@ -595,26 +602,26 @@
         <table class="pb-table" id="pb-holdings-table">
           <thead>
             <tr>
-              <th style="text-align:left;min-width:80px">Ticker</th>
-              <th style="min-width:48px;text-align:center">Grade</th>
-              <th style="min-width:120px">Score</th>
-              <th style="min-width:100px">$ Amount</th>
-              <th>Shares</th>
-              <th>Wt%</th>
-              <th>Sharpe</th>
-              <th>Sortino</th>
-              <th>Calmar</th>
-              <th>Omega</th>
-              <th>Up Cap</th>
-              <th>Dn Cap</th>
-              <th>Ann Ret%</th>
-              <th>Ann Vol%</th>
-              <th>Max DD%</th>
-              <th>52w High</th>
-              <th>52w Low</th>
-              <th>Ann Inc</th>
-              <th>Mon Inc</th>
-              <th>Yield%</th>
+              <th style="text-align:left;min-width:80px" data-sort-key="ticker" onclick="sortTable('ticker')" class="sort-asc">Ticker</th>
+              <th style="min-width:48px;text-align:center" data-sort-key="grade" onclick="sortTable('grade')">Grade</th>
+              <th style="min-width:120px" data-sort-key="score" onclick="sortTable('score')">Score</th>
+              <th style="min-width:100px" data-sort-key="dollar_amount" onclick="sortTable('dollar_amount')">$ Amount</th>
+              <th data-sort-key="shares" onclick="sortTable('shares')">Shares</th>
+              <th data-sort-key="wt" onclick="sortTable('wt')">Wt%</th>
+              <th data-sort-key="sharpe" onclick="sortTable('sharpe')">Sharpe</th>
+              <th data-sort-key="sortino" onclick="sortTable('sortino')">Sortino</th>
+              <th data-sort-key="calmar" onclick="sortTable('calmar')">Calmar</th>
+              <th data-sort-key="omega" onclick="sortTable('omega')">Omega</th>
+              <th data-sort-key="up_capture" onclick="sortTable('up_capture')">Up Cap</th>
+              <th data-sort-key="down_capture" onclick="sortTable('down_capture')">Dn Cap</th>
+              <th data-sort-key="annual_ret" onclick="sortTable('annual_ret')">Ann Ret%</th>
+              <th data-sort-key="annual_vol" onclick="sortTable('annual_vol')">Ann Vol%</th>
+              <th data-sort-key="max_drawdown" onclick="sortTable('max_drawdown')">Max DD%</th>
+              <th data-sort-key="week52_high" onclick="sortTable('week52_high')">52w High</th>
+              <th data-sort-key="week52_low" onclick="sortTable('week52_low')">52w Low</th>
+              <th data-sort-key="annual_income" onclick="sortTable('annual_income')">Ann Inc</th>
+              <th data-sort-key="monthly_income" onclick="sortTable('monthly_income')">Mon Inc</th>
+              <th data-sort-key="annual_yield_pct" onclick="sortTable('annual_yield_pct')">Yield%</th>
               <th style="text-align:center;min-width:36px"></th>
             </tr>
           </thead>
@@ -742,6 +749,58 @@
   var _renamePrevName = "";
   var holdingsCache = [];   // [{ticker, dollar_amount}, ...]
   var metricsCache = {};    // ticker -> metrics row (after analyze)
+  var _sortKey = "ticker";
+  var _sortAsc = true;
+
+  // ── Sort ─────────────────────────────────────────────────────────────────
+  // Grade ordering: A > B > C > D > F > --
+  var _gradeOrder = {"A":5,"B":4,"C":3,"D":2,"F":1,"--":0};
+
+  function _sortVal(h, key){
+    if(key === "ticker") return h.ticker || "";
+    if(key === "dollar_amount") return parseFloat(h.dollar_amount) || 0;
+    if(key === "wt"){
+      var tot = holdingsCache.reduce(function(s,x){ return s+(parseFloat(x.dollar_amount)||0); },0);
+      return tot > 0 ? (parseFloat(h.dollar_amount)||0)/tot : 0;
+    }
+    var m = metricsCache[h.ticker] || {};
+    if(key === "grade") return _gradeOrder[m.grade] || 0;
+    if(key === "score") return (m.score !== undefined && m.score !== null) ? m.score : -Infinity;
+    if(key === "shares") return (m.shares !== undefined && m.shares !== null) ? parseFloat(m.shares) : -Infinity;
+    var v = m[key];
+    if(v === undefined || v === null) return -Infinity;
+    return parseFloat(v);
+  }
+
+  window.sortTable = function(key){
+    // Toggle direction if same column, else default to ascending (desc for metrics)
+    if(_sortKey === key){
+      _sortAsc = !_sortAsc;
+    } else {
+      _sortKey = key;
+      _sortAsc = (key === "ticker"); // alpha asc, numeric desc
+    }
+    // Update header classes
+    document.querySelectorAll(".pb-table th[data-sort-key]").forEach(function(th){
+      th.classList.remove("sort-asc","sort-desc");
+      if(th.getAttribute("data-sort-key") === _sortKey){
+        th.classList.add(_sortAsc ? "sort-asc" : "sort-desc");
+      }
+    });
+    _applySortAndRender();
+  };
+
+  function _applySortAndRender(){
+    holdingsCache.sort(function(a, b){
+      var va = _sortVal(a, _sortKey);
+      var vb = _sortVal(b, _sortKey);
+      var cmp;
+      if(typeof va === "string" && typeof vb === "string") cmp = va.localeCompare(vb);
+      else cmp = (va < vb ? -1 : (va > vb ? 1 : 0));
+      return _sortAsc ? cmp : -cmp;
+    });
+    _applySortAndRender();
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function fmt$(v){
@@ -920,7 +979,7 @@
       .then(function(d){
         if(d.error){ showError(d.error); return; }
         holdingsCache = d.holdings || [];
-        renderHoldingsTable(holdingsCache, {});
+        _applySortAndRender();
         syncScrollWidth();
       }).catch(function(e){ showError("Failed to load holdings: " + e); });
   };
@@ -1011,7 +1070,7 @@
       var existing = holdingsCache.findIndex(function(h){ return h.ticker === ticker; });
       if(existing >= 0) holdingsCache[existing].dollar_amount = dollars;
       else holdingsCache.push({ticker:ticker, dollar_amount:dollars});
-      renderHoldingsTable(holdingsCache, metricsCache);
+      _applySortAndRender();
       // Update sidebar count
       _updateSidebarCount(activePortfolioId, holdingsCache.length);
       var st = document.getElementById("pb-add-status");
@@ -1038,7 +1097,7 @@
         if(d.error){ showError(d.error); return; }
         holdingsCache = holdingsCache.filter(function(h){ return h.ticker !== ticker; });
         delete metricsCache[ticker];
-        renderHoldingsTable(holdingsCache, metricsCache);
+        _applySortAndRender();
         _updateSidebarCount(activePortfolioId, holdingsCache.length);
       }).catch(function(e){ showError("Request failed: " + e); });
   };
@@ -1073,7 +1132,7 @@
     }).then(function(r){ return r.json(); }).then(function(d){
       if(d.error){ showError(d.error); return; }
       holdingsCache.forEach(function(h){ if(h.ticker===ticker) h.dollar_amount = val; });
-      renderHoldingsTable(holdingsCache, metricsCache);
+      _applySortAndRender();
     }).catch(function(e){ showError("Request failed: " + e); });
   }
 
@@ -1150,7 +1209,7 @@
         metricsCache = {};
         (data.holdings || []).forEach(function(h){ metricsCache[h.ticker] = h; });
 
-        renderHoldingsTable(holdingsCache, metricsCache);
+        _applySortAndRender();
         renderGradePanel(data.portfolio_metrics || {});
         renderCharts(data);
         syncScrollWidth();
