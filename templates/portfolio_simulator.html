@@ -12,8 +12,8 @@
 
 /* Sidebar */
 .pb-sidebar {
-  width: 250px;
-  min-width: 250px;
+  width: 200px;
+  min-width: 200px;
   background: #0d0d1f;
   border-right: 1px solid #1e1e3a;
   padding: 1rem 0.75rem;
@@ -130,9 +130,9 @@
 /* Main content */
 .pb-main {
   flex: 1;
-  padding: 1.2rem 1.5rem;
+  padding: 1.2rem 0.5rem;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 /* Portfolio header */
@@ -273,32 +273,34 @@
 }
 .pb-add-submit:hover { background: rgba(126,207,255,0.12); }
 
-/* Holdings table */
+/* Holdings table — break out of container to use full viewport width */
 .pb-table-wrap {
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: visible;
   border: 1px solid #1e1e3a;
   border-radius: 6px;
   margin-bottom: 1.5rem;
+  width: calc(100vw - 200px - 2rem);
+  max-width: calc(100vw - 200px - 2rem);
 }
 .pb-table-scroll-top {
   overflow-x: auto;
   overflow-y: hidden;
-  height: 14px;
-  margin-bottom: 2px;
+  height: 0;
+  margin-bottom: 0;
+  display: none;
 }
 .pb-table-scroll-top-inner { height: 1px; }
 
 .pb-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.77rem;
-  min-width: 900px;
+  font-size: 0.72rem;
 }
 .pb-table th {
   background: #0d0d1f;
   color: #7ecfff;
-  padding: 0.35rem 0.35rem;
+  padding: 0.3rem 0.25rem;
   text-align: right;
   border-bottom: 2px solid #1e1e3a;
   white-space: nowrap;
@@ -309,7 +311,7 @@
 }
 .pb-table th:first-child { text-align: left; }
 .pb-table td {
-  padding: 0.3rem 0.35rem;
+  padding: 0.25rem 0.25rem;
   border-bottom: 1px solid #171728;
   text-align: right;
   color: #ddd;
