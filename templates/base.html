@@ -9,18 +9,21 @@
 </head>
 <body>
     <nav>
-        <div class="nav-dropdown {{ 'nav-dropdown-active' if request.endpoint in ('index', 'manage', 'payouts', 'watchlist', 'watchlist_watching_list', 'watchlist_sold_list', 'watchlist_data') else '' }}">
+        <div class="nav-dropdown {{ 'nav-dropdown-active' if request.endpoint in ('index', 'manage', 'payouts', 'watchlist', 'watchlist_watching_list', 'watchlist_sold_list', 'watchlist_data', 'categories_page', 'portfolio_summary', 'portfolio_summary_data') else '' }}">
             <span class="nav-dropdown-label">Portfolio Information &#9662;</span>
             <div class="nav-dropdown-menu">
                 <a href="{{ url_for('index') }}" class="{{ 'nav-active' if request.endpoint == 'index' else '' }}">Dashboard</a>
+                <a href="{{ url_for('portfolio_summary') }}" class="{{ 'nav-active' if request.endpoint == 'portfolio_summary' else '' }}">Summary</a>
                 <a href="{{ url_for('manage') }}" class="{{ 'nav-active' if request.endpoint == 'manage' else '' }}">Data Management</a>
                 <a href="{{ url_for('payouts') }}" class="{{ 'nav-active' if request.endpoint == 'payouts' else '' }}">Payouts</a>
                 <a href="{{ url_for('watchlist') }}" class="{{ 'nav-active' if request.endpoint in ('watchlist', 'watchlist_watching_list', 'watchlist_sold_list', 'watchlist_data') else '' }}">Watchlist</a>
+                <a href="{{ url_for('categories_page') }}" class="{{ 'nav-active' if request.endpoint == 'categories_page' else '' }}">Categories</a>
             </div>
         </div>
-        <div class="nav-dropdown {{ 'nav-dropdown-active' if request.endpoint in ('dividend_analysis', 'total_return', 'single_etf_return', 'single_etf_data', 'charts', 'div_calendar', 'buy_sell_signals', 'buy_sell_signals_data', 'nav_erosion', 'nav_erosion_data', 'nav_erosion_portfolio', 'nav_erosion_portfolio_list', 'nav_erosion_portfolio_data', 'portfolio_income_sim', 'portfolio_income_sim_list', 'portfolio_income_sim_run', 'portfolio_income_sim_saved', 'portfolio_income_sim_saved_item', 'portfolio_analytics', 'portfolio_analytics_data', 'portfolio_optimizer', 'portfolio_optimizer_data', 'portfolio_builder', 'pb_create_portfolio', 'pb_update_portfolio', 'pb_delete_portfolio', 'pb_get_holdings', 'pb_add_holding', 'pb_delete_holding', 'pb_analyze', 'pb_compare', 'portfolio_simulator', 'sim_create_portfolio', 'sim_update_portfolio', 'sim_delete_portfolio', 'sim_get_holdings', 'sim_add_holding', 'sim_delete_holding', 'sim_sell_holding', 'sim_analyze', 'sim_compare') else '' }}">
+        <div class="nav-dropdown {{ 'nav-dropdown-active' if request.endpoint in ('dividend_analysis', 'total_return', 'single_etf_return', 'single_etf_data', 'charts', 'div_calendar', 'buy_sell_signals', 'buy_sell_signals_data', 'nav_erosion', 'nav_erosion_data', 'nav_erosion_portfolio', 'nav_erosion_portfolio_list', 'nav_erosion_portfolio_data', 'portfolio_income_sim', 'portfolio_income_sim_list', 'portfolio_income_sim_run', 'portfolio_income_sim_saved', 'portfolio_income_sim_saved_item', 'portfolio_analytics', 'portfolio_analytics_data', 'portfolio_optimizer', 'portfolio_optimizer_data', 'portfolio_builder', 'pb_create_portfolio', 'pb_update_portfolio', 'pb_delete_portfolio', 'pb_get_holdings', 'pb_add_holding', 'pb_delete_holding', 'pb_analyze', 'pb_compare', 'portfolio_simulator', 'sim_create_portfolio', 'sim_update_portfolio', 'sim_delete_portfolio', 'sim_get_holdings', 'sim_add_holding', 'sim_delete_holding', 'sim_sell_holding', 'sim_analyze', 'sim_compare', 'growth_page', 'growth_data') else '' }}">
             <span class="nav-dropdown-label">Simulations &amp; Graphs &#9662;</span>
             <div class="nav-dropdown-menu">
+                <a href="{{ url_for('growth_page') }}" class="{{ 'nav-active' if request.endpoint in ('growth_page', 'growth_data') else '' }}">Growth</a>
                 <a href="{{ url_for('dividend_analysis') }}" class="{{ 'nav-active' if request.endpoint == 'dividend_analysis' else '' }}">Dividend Analysis</a>
                 <a href="{{ url_for('total_return') }}" class="{{ 'nav-active' if request.endpoint == 'total_return' else '' }}">Total Return</a>
                 <a href="{{ url_for('single_etf_return') }}" class="{{ 'nav-active' if request.endpoint in ('single_etf_return', 'single_etf_data') else '' }}">Single ETF Return</a>

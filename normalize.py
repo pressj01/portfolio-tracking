@@ -10,7 +10,8 @@ def populate_holdings(profile_id=1):
         USING (
             SELECT ticker, description, classification_type, quantity,
                    price_paid, current_price, purchase_value, current_value,
-                   gain_or_loss, gain_or_loss_percentage, percent_change
+                   gain_or_loss, gain_or_loss_percentage, percent_change,
+                   purchase_date
             FROM dbo.all_account_info
             WHERE profile_id = ?
         ) AS source
@@ -25,15 +26,18 @@ def populate_holdings(profile_id=1):
             current_value = source.current_value,
             gain_or_loss = source.gain_or_loss,
             gain_or_loss_percentage = source.gain_or_loss_percentage,
-            percent_change = source.percent_change
+            percent_change = source.percent_change,
+            purchase_date = source.purchase_date
         WHEN NOT MATCHED THEN INSERT (
             ticker, description, classification_type, quantity,
             price_paid, current_price, purchase_value, current_value,
-            gain_or_loss, gain_or_loss_percentage, percent_change
+            gain_or_loss, gain_or_loss_percentage, percent_change,
+            purchase_date
         ) VALUES (
             source.ticker, source.description, source.classification_type, source.quantity,
             source.price_paid, source.current_price, source.purchase_value, source.current_value,
-            source.gain_or_loss, source.gain_or_loss_percentage, source.percent_change
+            source.gain_or_loss, source.gain_or_loss_percentage, source.percent_change,
+            source.purchase_date
         );
     """, profile_id)
     row_count = cursor.rowcount

@@ -35,9 +35,10 @@ COLUMN_MAP = {
     "YTD Divs": "ytd_divs",
     "Total Divs Received": "total_divs_received",
     "Paid For Itself": "paid_for_itself",
+    "Date Purchased": "purchase_date",
 }
 
-SQL_COLUMNS = list(COLUMN_MAP.values()) + ["import_date"]
+SQL_COLUMNS = list(COLUMN_MAP.values()) + ["import_date", "current_month_income"]
 
 
 def ensure_tables_exist(conn):
@@ -115,6 +116,7 @@ def ensure_tables_exist(conn):
             current_yield_of_account FLOAT,
             dollars_per_hour FLOAT,
             import_date DATE,
+            purchase_date DATE,
             CONSTRAINT UQ_aai_ticker_profile UNIQUE (ticker, profile_id)
         )
     """)
@@ -149,6 +151,8 @@ def ensure_tables_exist(conn):
         ("ytd_divs", "FLOAT"),
         ("total_divs_received", "FLOAT"),
         ("paid_for_itself", "FLOAT"),
+        ("current_month_income", "FLOAT"),
+        ("purchase_date", "DATE"),
     ]:
         cursor.execute(f"""
             IF NOT EXISTS (
@@ -172,8 +176,18 @@ def ensure_tables_exist(conn):
             current_value FLOAT,
             gain_or_loss FLOAT,
             gain_or_loss_percentage FLOAT,
-            percent_change FLOAT
+            percent_change FLOAT,
+            purchase_date DATE
         )
+    """)
+
+    # Add purchase_date to existing holdings tables
+    cursor.execute("""
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='holdings' AND COLUMN_NAME='purchase_date'
+        )
+        ALTER TABLE dbo.holdings ADD purchase_date DATE
     """)
 
     # dividends
@@ -580,6 +594,33 @@ def ensure_tables_exist(conn):
         )
     """)
 
+    # ── Categories tables ─────────────────────────────────────────────────────
+    cursor.execute("""
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                       WHERE TABLE_NAME = 'categories')
+        CREATE TABLE dbo.categories (
+            id         INT IDENTITY(1,1) PRIMARY KEY,
+            name       NVARCHAR(100) NOT NULL,
+            target_pct FLOAT         NULL,
+            profile_id INT           NOT NULL DEFAULT 1,
+            sort_order INT           NOT NULL DEFAULT 0,
+            CONSTRAINT uq_cat_name_profile UNIQUE (name, profile_id)
+        )
+    """)
+    cursor.execute("""
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                       WHERE TABLE_NAME = 'ticker_categories')
+        CREATE TABLE dbo.ticker_categories (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            ticker      NVARCHAR(20) NOT NULL,
+            category_id INT          NOT NULL,
+            profile_id  INT          NOT NULL DEFAULT 1,
+            CONSTRAINT uq_tc_ticker_profile UNIQUE (ticker, profile_id),
+            CONSTRAINT fk_tc_category
+                FOREIGN KEY (category_id) REFERENCES dbo.categories(id)
+        )
+    """)
+
     conn.commit()
 
 
@@ -594,6 +635,9 @@ def import_from_excel(profile_id=1):
     _current_year  = date.today().year
     _monthly_income_updates = []  # list of (year, month_num, amount)
 
+    _current_month = date.today().month
+    _current_month_col = None  # will hold the Excel column name for current month's income
+
     for col_name in df.columns:
         if not isinstance(col_name, str):        # skip NaN / numeric column headers
             continue
@@ -604,6 +648,9 @@ def import_from_excel(profile_id=1):
             _month_num = pd.to_datetime(_m.group(1), format='%B').month
         except Exception:
             continue
+        # Track which column is the current month
+        if _month_num == _current_month:
+            _current_month_col = col_name
         # Sum only valid ticker rows (excludes TOTALS and summary rows)
         _mask  = df['Ticker'].apply(
             lambda t: isinstance(t, str) and t.strip() != 'TOTALS' and bool(_valid_ticker.match(t.strip()))
@@ -612,12 +659,21 @@ def import_from_excel(profile_id=1):
         if _total > 0:
             _monthly_income_updates.append((_current_year, _month_num, round(float(_total), 2)))
 
+    # Capture per-ticker current month income before columns are filtered
+    _current_month_income_series = None
+    if _current_month_col is not None:
+        _current_month_income_series = pd.to_numeric(df[_current_month_col], errors='coerce').fillna(0)
+
     # Keep only mapped columns that actually exist in this sheet
     excel_cols = [c for c in COLUMN_MAP.keys() if c in df.columns]
     df = df[excel_cols].copy()
 
     # Rename to SQL column names
     df.rename(columns=COLUMN_MAP, inplace=True)
+
+    # Attach per-ticker current month income (captured before column filtering)
+    if _current_month_income_series is not None:
+        df['current_month_income'] = _current_month_income_series.reindex(df.index).fillna(0)
 
     # Drop rows where ticker is null or blank
     df = df.dropna(subset=["ticker"])
@@ -645,9 +701,64 @@ def import_from_excel(profile_id=1):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # Coerce purchase_date — Excel may return datetime, string, or blank
+    if "purchase_date" in df.columns:
+        df["purchase_date"] = pd.to_datetime(df["purchase_date"], errors="coerce")
+        # Convert NaT to None so SQL receives NULL for blank cells
+        df["purchase_date"] = df["purchase_date"].where(df["purchase_date"].notna(), other=None)
+
     # Drop rows where current_price is NaN or zero — these are summary/header rows, not real holdings
     if "current_price" in df.columns:
         df = df[df["current_price"].notna()]
+
+    # ── Recompute paid_for_itself from yfinance dividend history since purchase ──
+    if "purchase_date" in df.columns:
+        import yfinance as yf
+        _pd_mask = df["purchase_date"].notna()
+        if _pd_mask.any():
+            _dated = df.loc[_pd_mask].copy()
+            _earliest = pd.Timestamp(_dated["purchase_date"].min())
+            _tickers = _dated["ticker"].unique().tolist()
+            _ticker_str = " ".join(_tickers)
+            try:
+                _raw = yf.download(
+                    _ticker_str, start=_earliest.strftime("%Y-%m-%d"),
+                    progress=False, auto_adjust=False, actions=True
+                )
+                if not _raw.empty:
+                    # yfinance 1.2.0 always returns MultiIndex columns
+                    _divs = None
+                    if isinstance(_raw.columns, pd.MultiIndex):
+                        if "Dividends" in _raw.columns.get_level_values(0):
+                            _divs = _raw["Dividends"]  # DataFrame with ticker columns
+                    elif "Dividends" in _raw.columns:
+                        _divs = _raw["Dividends"]  # Series (older yfinance)
+
+                    if _divs is not None:
+                        for idx in _dated.index:
+                            t = df.at[idx, "ticker"]
+                            _pdate = pd.Timestamp(df.at[idx, "purchase_date"])
+                            _qty = float(df.at[idx, "quantity"] or 0)
+                            _pv = float(df.at[idx, "purchase_value"] or 0)
+
+                            # Get dividend series for this ticker
+                            if isinstance(_divs, pd.DataFrame):
+                                if t not in _divs.columns:
+                                    continue
+                                _tseries = _divs[t]
+                            else:
+                                _tseries = _divs  # Series (single ticker, old yfinance)
+
+                            # Sum dividends per share from purchase date onward
+                            _since = _tseries[_tseries.index >= _pdate]
+                            _total_dps = float(_since[_since > 0].sum())
+                            _total_divs = _total_dps * _qty
+                            _pfi = _total_divs / _pv if _pv > 0 else 0
+
+                            df.at[idx, "total_divs_received"] = round(_total_divs, 2)
+                            df.at[idx, "paid_for_itself"] = round(_pfi, 6)
+            except Exception:
+                pass  # Keep Excel values if yfinance fails
 
     # Add import_date and profile_id
     df["import_date"] = date.today()

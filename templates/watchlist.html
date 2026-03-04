@@ -310,7 +310,7 @@ function buildWatchingRow(r, a) {
     var sortino = a && a.sortino != null ? a.sortino.toFixed(2) : '\u2014';
     var ret1y = a && a.one_yr_ret != null ? fmtPct(a.one_yr_ret) : '\u2014';
     var ret1yCls = a ? pctClass(a.one_yr_ret) : '';
-    var erosion = a && a.nav_erosion ? '<span class="erosion-flag">YES</span>' : '\u2014';
+    var erosion = a ? (a.nav_erosion ? '<span class="erosion-flag">YES</span>' : '<span style="color:#4dff91">NO</span>') : '\u2014';
 
     var sigOrder = {'BUY':0,'NEUTRAL':1,'SELL':2};
 

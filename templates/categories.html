@@ -1,0 +1,507 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.cat-page { max-width: 1400px; margin: 0 auto; }
+.cat-page h1 { color: #e0e6ed; margin-bottom: 0.25rem; }
+.cat-page .cat-sub { color: #888; font-size: 0.9rem; margin-bottom: 1.2rem; }
+.cat-main { display: flex; gap: 1.5rem; align-items: flex-start; }
+.cat-left { flex: 7; min-width: 0; }
+.cat-right { flex: 3; min-width: 220px; position: sticky; top: 1rem; }
+
+/* ── Category cards ── */
+.cat-card {
+    background: #181c2a; border: 1px solid #2a2a3e; border-radius: 8px;
+    margin-bottom: 0.75rem; overflow: hidden; transition: border-color 0.2s;
+}
+.cat-card.focused { border-color: #7ecfff; }
+.cat-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.7rem 1rem; cursor: pointer; user-select: none;
+}
+.cat-header:hover { background: rgba(255,255,255,0.03); }
+.cat-chevron {
+    font-size: 0.7rem; color: #888; transition: transform 0.2s;
+    width: 1rem; text-align: center; flex-shrink: 0;
+}
+.cat-card.open .cat-chevron { transform: rotate(90deg); }
+.cat-name { font-weight: 600; color: #e0e6ed; font-size: 0.95rem; }
+.cat-target { color: #888; font-size: 0.8rem; margin-left: 0.5rem; }
+.cat-actual { font-size: 0.8rem; margin-left: 0.3rem; }
+.cat-header-actions { margin-left: auto; display: flex; gap: 0.4rem; flex-shrink: 0; }
+.cat-header-actions button {
+    background: none; border: none; color: #666; cursor: pointer;
+    font-size: 0.85rem; padding: 2px 6px; border-radius: 4px;
+}
+.cat-header-actions button:hover { color: #c8d6e5; background: rgba(255,255,255,0.07); }
+
+/* ── Allocation bar ── */
+.cat-alloc-bar {
+    height: 3px; background: #2a2a3e; border-radius: 2px;
+    width: 80px; margin-left: 0.5rem; flex-shrink: 0; overflow: hidden;
+}
+.cat-alloc-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+
+/* ── Ticker list inside category ── */
+.cat-tickers { padding: 0 1rem 0.6rem; display: none; }
+.cat-card.open .cat-tickers { display: block; }
+.cat-ticker-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0; border-bottom: 1px solid #1e2236;
+    font-size: 0.85rem;
+}
+.cat-ticker-row:last-child { border-bottom: none; }
+.cat-ticker-sym { color: #7ecfff; font-weight: 600; min-width: 65px; }
+.cat-ticker-desc { color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-ticker-val { color: #aaa; font-size: 0.8rem; min-width: 70px; text-align: right; }
+.cat-ticker-rm {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 0.9rem; padding: 2px 4px; border-radius: 3px;
+}
+.cat-ticker-rm:hover { color: #ff6b6b; background: rgba(255,107,107,0.1); }
+.cat-ticker-actions { display: flex; gap: 0.5rem; padding: 0.4rem 0 0; }
+.cat-ticker-actions a { color: #7ecfff; font-size: 0.75rem; cursor: pointer; text-decoration: none; }
+.cat-ticker-actions a:hover { text-decoration: underline; }
+.cat-empty { color: #555; font-size: 0.8rem; font-style: italic; padding: 0.3rem 0; }
+
+/* ── Add category button ── */
+.cat-add-btn {
+    background: rgba(126,207,255,0.08); border: 1px dashed #3a3a5e;
+    color: #7ecfff; padding: 0.6rem 1.2rem; border-radius: 8px;
+    cursor: pointer; font-size: 0.9rem; width: 100%; text-align: center;
+    margin-top: 0.5rem; transition: background 0.2s;
+}
+.cat-add-btn:hover { background: rgba(126,207,255,0.15); }
+
+/* ── Unallocated panel ── */
+.cat-unalloc-card {
+    background: #181c2a; border: 1px solid #2a2a3e; border-radius: 8px; padding: 1rem;
+}
+.cat-unalloc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.cat-unalloc-header h3 { color: #e0e6ed; font-size: 0.95rem; margin: 0; }
+.cat-unalloc-count { color: #888; font-size: 0.8rem; }
+.cat-unalloc-actions { display: flex; gap: 0.6rem; margin-bottom: 0.6rem; }
+.cat-unalloc-actions a { color: #7ecfff; font-size: 0.78rem; cursor: pointer; text-decoration: none; }
+.cat-unalloc-actions a:hover { text-decoration: underline; }
+.cat-unalloc-list {
+    display: flex; flex-wrap: wrap; gap: 0.4rem;
+    max-height: 60vh; overflow-y: auto;
+}
+.cat-pill {
+    background: #111124; border: 1px solid #2a2a3e; border-radius: 16px;
+    padding: 0.3rem 0.7rem; cursor: pointer; font-size: 0.8rem;
+    color: #c8d6e5; transition: all 0.15s; user-select: none;
+}
+.cat-pill:hover { border-color: #4a4a6e; background: #1a1e32; }
+.cat-pill.selected { border-color: #7ecfff; background: rgba(126,207,255,0.15); color: #7ecfff; }
+.cat-assign-bar {
+    margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px solid #2a2a3e;
+    display: flex; align-items: center; gap: 0.5rem;
+}
+.cat-assign-btn {
+    background: #7ecfff; color: #0e1117; border: none; border-radius: 6px;
+    padding: 0.4rem 0.8rem; font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+}
+.cat-assign-btn:hover { background: #6ab8e8; }
+.cat-assign-btn:disabled { background: #3a3a5e; color: #666; cursor: default; }
+.cat-assign-hint { color: #666; font-size: 0.75rem; }
+
+/* ── Modal ── */
+.cat-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 1000; justify-content: center; align-items: center;
+}
+.cat-modal-overlay.open { display: flex; }
+.cat-modal {
+    background: #1a1f2e; border: 1px solid #2a2a4e; border-radius: 10px;
+    padding: 1.5rem; min-width: 340px; max-width: 420px;
+}
+.cat-modal h3 { color: #e0e6ed; margin: 0 0 1rem; }
+.cat-modal label { color: #999; font-size: 0.85rem; display: block; margin-bottom: 0.3rem; }
+.cat-modal input {
+    width: 100%; box-sizing: border-box; background: #111124; border: 1px solid #2a2a3e;
+    color: #e0e6ed; padding: 0.5rem 0.7rem; border-radius: 6px; font-size: 0.9rem;
+    margin-bottom: 0.8rem;
+}
+.cat-modal input:focus { border-color: #7ecfff; outline: none; }
+.cat-modal-btns { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.cat-modal-btns button {
+    padding: 0.5rem 1.2rem; border-radius: 6px; border: none;
+    font-size: 0.85rem; cursor: pointer; font-weight: 600;
+}
+.cat-modal-save { background: #7ecfff; color: #0e1117; }
+.cat-modal-save:hover { background: #6ab8e8; }
+.cat-modal-cancel { background: #2a2a3e; color: #c8d6e5; }
+.cat-modal-cancel:hover { background: #3a3a4e; }
+
+/* ── Summary strip ── */
+.cat-summary {
+    background: #181c2a; border: 1px solid #2a2a3e; border-radius: 8px;
+    padding: 0.6rem 1rem; margin-bottom: 1rem; display: flex;
+    align-items: center; gap: 1.5rem; font-size: 0.85rem; flex-wrap: wrap;
+}
+.cat-summary-label { color: #888; }
+.cat-summary-val { color: #7ecfff; font-weight: 600; }
+.cat-summary-bar {
+    flex: 1; min-width: 200px; height: 8px; background: #2a2a3e;
+    border-radius: 4px; overflow: hidden; display: flex;
+}
+.cat-summary-seg { height: 100%; transition: width 0.3s; }
+</style>
+
+<div class="cat-page">
+    <h1>Categories</h1>
+    <p class="cat-sub">Organize your holdings into custom categories with target allocations.</p>
+
+    <div id="cat-summary" class="cat-summary" style="display:none"></div>
+
+    <div class="cat-main">
+        <div class="cat-left">
+            <div id="cat-list"></div>
+            <button class="cat-add-btn" onclick="showCreateModal()">+ New Category</button>
+        </div>
+        <div class="cat-right">
+            <div class="cat-unalloc-card">
+                <div class="cat-unalloc-header">
+                    <h3>Unallocated Assets</h3>
+                    <span class="cat-unalloc-count" id="cat-unalloc-count">0</span>
+                </div>
+                <div class="cat-unalloc-actions">
+                    <a onclick="selectAllUnalloc(); return false">Select all</a>
+                    <a onclick="clearUnalloc(); return false" style="color:#888">Clear</a>
+                </div>
+                <div class="cat-unalloc-list" id="cat-unalloc-list"></div>
+                <div class="cat-assign-bar">
+                    <button class="cat-assign-btn" id="cat-assign-btn" disabled onclick="assignSelected()">Assign Selected (0)</button>
+                    <span class="cat-assign-hint" id="cat-assign-hint">Click a category to focus it</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create/Edit modal -->
+<div class="cat-modal-overlay" id="cat-modal">
+    <div class="cat-modal">
+        <h3 id="cat-modal-title">New Category</h3>
+        <label for="cat-modal-name">Name</label>
+        <input id="cat-modal-name" type="text" maxlength="100" placeholder="e.g. Boosters">
+        <label for="cat-modal-target">Target Allocation %</label>
+        <input id="cat-modal-target" type="number" step="0.1" min="0" max="100" placeholder="optional">
+        <div class="cat-modal-btns">
+            <button class="cat-modal-save" onclick="saveCategory()">Save</button>
+            <button class="cat-modal-cancel" onclick="closeModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var categories = [];
+    var unallocated = [];
+    var totalValue = 0;
+    var focusedCatId = null;
+    var selectedUnalloc = {};
+    var editingCatId = null;
+    var collapsed = {};
+
+    var COLORS = ['#7ecfff','#00e89a','#ff6b6b','#ffc107','#b388ff','#ff8a65','#4dd0e1','#aed581','#f48fb1','#80cbc4'];
+
+    function fmt$(v) {
+        if (v == null || isNaN(v)) return '$0';
+        return '$' + Math.round(v).toLocaleString();
+    }
+
+    function api(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        }).then(function(r) { return r.json(); });
+    }
+
+    function loadData() {
+        fetch('/categories/data')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                categories = d.categories || [];
+                unallocated = d.unallocated || [];
+                totalValue = d.total_value || 0;
+                renderAll();
+            });
+    }
+
+    function renderAll() {
+        renderSummary();
+        renderCategories();
+        renderUnallocated();
+        updateAssignBtn();
+    }
+
+    function renderSummary() {
+        var el = document.getElementById('cat-summary');
+        if (categories.length === 0) { el.style.display = 'none'; return; }
+        el.style.display = 'flex';
+
+        var totalAssigned = 0;
+        var totalTickers = 0;
+        categories.forEach(function(c) {
+            totalTickers += c.tickers.length;
+            c.tickers.forEach(function(t) { totalAssigned += (t.current_value || 0); });
+        });
+        var totalAll = totalAssigned;
+        unallocated.forEach(function(t) { totalAll += (t.current_value || 0); });
+
+        var pctAllocated = totalAll > 0 ? (totalAssigned / totalAll * 100) : 0;
+
+        var html = '<span class="cat-summary-label">Allocated:</span>' +
+            '<span class="cat-summary-val">' + totalTickers + ' of ' + (totalTickers + unallocated.length) + ' holdings</span>' +
+            '<span class="cat-summary-label">Value:</span>' +
+            '<span class="cat-summary-val">' + fmt$(totalAssigned) + ' (' + pctAllocated.toFixed(1) + '%)</span>' +
+            '<div class="cat-summary-bar">';
+
+        categories.forEach(function(c, i) {
+            var catVal = 0;
+            c.tickers.forEach(function(t) { catVal += (t.current_value || 0); });
+            var w = totalAll > 0 ? (catVal / totalAll * 100) : 0;
+            if (w > 0) {
+                html += '<div class="cat-summary-seg" style="width:' + w + '%;background:' + COLORS[i % COLORS.length] + '" title="' + c.name + ' ' + w.toFixed(1) + '%"></div>';
+            }
+        });
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
+    function renderCategories() {
+        var el = document.getElementById('cat-list');
+        if (categories.length === 0) {
+            el.innerHTML = '<div style="color:#555;text-align:center;padding:2rem">No categories yet. Click "+ New Category" to get started.</div>';
+            return;
+        }
+        var html = '';
+        categories.forEach(function(c, idx) {
+            var isOpen = !collapsed[c.id];
+            var isFocused = focusedCatId === c.id;
+            var catVal = 0;
+            c.tickers.forEach(function(t) { catVal += (t.current_value || 0); });
+            var actualPct = totalValue > 0 ? (catVal / totalValue * 100) : 0;
+
+            var barColor = '#7ecfff';
+            if (c.target_pct != null && c.target_pct > 0) {
+                var diff = Math.abs(actualPct - c.target_pct);
+                if (diff <= 3) barColor = '#00e89a';
+                else if (diff <= 8) barColor = '#ffc107';
+                else barColor = '#ff6b6b';
+            }
+            var barWidth = Math.min(actualPct, 100);
+
+            html += '<div class="cat-card' + (isOpen ? ' open' : '') + (isFocused ? ' focused' : '') + '" data-id="' + c.id + '">';
+            html += '<div class="cat-header" onclick="window._catToggle(' + c.id + ')">';
+            html += '<span class="cat-chevron">&#9654;</span>';
+            html += '<span class="cat-name">' + escHtml(c.name) + '</span>';
+            if (c.target_pct != null) {
+                html += '<span class="cat-target">Target: ' + c.target_pct + '%</span>';
+            }
+            html += '<span class="cat-actual" style="color:' + barColor + '">' + actualPct.toFixed(1) + '%</span>';
+            html += '<div class="cat-alloc-bar"><div class="cat-alloc-fill" style="width:' + barWidth + '%;background:' + barColor + '"></div></div>';
+            html += '<span style="color:#888;font-size:0.75rem;margin-left:0.3rem">(' + c.tickers.length + ')</span>';
+            html += '<div class="cat-header-actions" onclick="event.stopPropagation()">';
+            html += '<button title="Edit" onclick="window._catEdit(' + c.id + ')">&#9998;</button>';
+            html += '<button title="Delete" onclick="window._catDel(' + c.id + ')">&#128465;</button>';
+            html += '</div></div>';
+
+            html += '<div class="cat-tickers">';
+            if (c.tickers.length === 0) {
+                html += '<div class="cat-empty">No tickers assigned. Focus this category and click tickers to assign.</div>';
+            } else {
+                c.tickers.sort(function(a, b) { return (a.ticker || '').localeCompare(b.ticker || ''); });
+                c.tickers.forEach(function(t) {
+                    html += '<div class="cat-ticker-row">';
+                    html += '<span class="cat-ticker-sym">' + escHtml(t.ticker) + '</span>';
+                    html += '<span class="cat-ticker-desc">' + escHtml(t.description || '') + '</span>';
+                    html += '<span class="cat-ticker-val">' + fmt$(t.current_value) + '</span>';
+                    html += '<button class="cat-ticker-rm" title="Unassign" onclick="window._catUnassign(\'' + t.ticker + '\')">&#10005;</button>';
+                    html += '</div>';
+                });
+                html += '<div class="cat-ticker-actions">';
+                html += '<a onclick="window._catSelectAll(' + c.id + '); return false">Select all</a>';
+                html += '<a onclick="window._catClear(' + c.id + '); return false" style="color:#888">Unassign all</a>';
+                html += '</div>';
+            }
+            html += '</div></div>';
+        });
+        el.innerHTML = html;
+    }
+
+    function renderUnallocated() {
+        var el = document.getElementById('cat-unalloc-list');
+        document.getElementById('cat-unalloc-count').textContent = unallocated.length;
+
+        if (unallocated.length === 0) {
+            el.innerHTML = '<div style="color:#555;font-size:0.8rem;font-style:italic">All tickers are assigned to categories.</div>';
+            return;
+        }
+
+        unallocated.sort(function(a, b) { return (a.ticker || '').localeCompare(b.ticker || ''); });
+        var html = '';
+        unallocated.forEach(function(t) {
+            var sel = selectedUnalloc[t.ticker] ? ' selected' : '';
+            html += '<span class="cat-pill' + sel + '" onclick="window._catPillClick(\'' + t.ticker + '\')" title="' + escHtml(t.description || t.ticker) + ' ' + fmt$(t.current_value) + '">' + escHtml(t.ticker) + '</span>';
+        });
+        el.innerHTML = html;
+    }
+
+    function updateAssignBtn() {
+        var count = Object.keys(selectedUnalloc).length;
+        var btn = document.getElementById('cat-assign-btn');
+        var hint = document.getElementById('cat-assign-hint');
+        btn.textContent = 'Assign Selected (' + count + ')';
+        btn.disabled = count === 0 || focusedCatId === null;
+        if (focusedCatId === null) {
+            hint.textContent = 'Click a category to focus it';
+        } else {
+            var cat = categories.find(function(c) { return c.id === focusedCatId; });
+            hint.textContent = cat ? 'Assigning to: ' + cat.name : '';
+        }
+    }
+
+    function escHtml(s) {
+        var d = document.createElement('div');
+        d.textContent = s || '';
+        return d.innerHTML;
+    }
+
+    /* ── Interaction handlers (exposed on window) ── */
+
+    window._catToggle = function(id) {
+        collapsed[id] = !collapsed[id];
+        focusedCatId = collapsed[id] ? null : id;
+        renderAll();
+    };
+
+    window._catEdit = function(id) {
+        var cat = categories.find(function(c) { return c.id === id; });
+        if (!cat) return;
+        editingCatId = id;
+        document.getElementById('cat-modal-title').textContent = 'Edit Category';
+        document.getElementById('cat-modal-name').value = cat.name;
+        document.getElementById('cat-modal-target').value = cat.target_pct != null ? cat.target_pct : '';
+        document.getElementById('cat-modal').classList.add('open');
+        document.getElementById('cat-modal-name').focus();
+    };
+
+    window._catDel = function(id) {
+        var cat = categories.find(function(c) { return c.id === id; });
+        if (!cat) return;
+        if (!confirm('Delete category "' + cat.name + '"? All tickers will be unassigned.')) return;
+        api('/categories/' + id + '/delete', {}).then(function() { loadData(); });
+    };
+
+    window._catUnassign = function(ticker) {
+        api('/categories/unassign', {ticker: ticker}).then(function() { loadData(); });
+    };
+
+    window._catSelectAll = function(id) {
+        /* Focus the category so the user can move tickers into it if needed */
+        focusedCatId = id;
+        collapsed[id] = false;
+        renderAll();
+    };
+
+    window._catClear = function(id) {
+        var cat = categories.find(function(c) { return c.id === id; });
+        if (!cat || cat.tickers.length === 0) return;
+        if (!confirm('Unassign all ' + cat.tickers.length + ' tickers from "' + cat.name + '"?')) return;
+        var tickers = cat.tickers.map(function(t) { return t.ticker; });
+        api('/categories/unassign', {tickers: tickers}).then(function() { loadData(); });
+    };
+
+    window._catPillClick = function(ticker) {
+        if (focusedCatId !== null) {
+            // Direct assign on click when a category is focused
+            api('/categories/assign', {ticker: ticker, category_id: focusedCatId}).then(function() {
+                delete selectedUnalloc[ticker];
+                loadData();
+            });
+        } else {
+            // Toggle selection
+            if (selectedUnalloc[ticker]) { delete selectedUnalloc[ticker]; }
+            else { selectedUnalloc[ticker] = true; }
+            renderUnallocated();
+            updateAssignBtn();
+        }
+    };
+
+    window.selectAllUnalloc = function() {
+        selectedUnalloc = {};
+        unallocated.forEach(function(t) { selectedUnalloc[t.ticker] = true; });
+        renderUnallocated();
+        updateAssignBtn();
+    };
+
+    window.clearUnalloc = function() {
+        selectedUnalloc = {};
+        renderUnallocated();
+        updateAssignBtn();
+    };
+
+    window.assignSelected = function() {
+        if (focusedCatId === null || Object.keys(selectedUnalloc).length === 0) return;
+        var tickers = Object.keys(selectedUnalloc);
+        api('/categories/assign', {tickers: tickers, category_id: focusedCatId}).then(function() {
+            selectedUnalloc = {};
+            loadData();
+        });
+    };
+
+    window.showCreateModal = function() {
+        editingCatId = null;
+        document.getElementById('cat-modal-title').textContent = 'New Category';
+        document.getElementById('cat-modal-name').value = '';
+        document.getElementById('cat-modal-target').value = '';
+        document.getElementById('cat-modal').classList.add('open');
+        document.getElementById('cat-modal-name').focus();
+    };
+
+    window.closeModal = function() {
+        document.getElementById('cat-modal').classList.remove('open');
+        editingCatId = null;
+    };
+
+    window.saveCategory = function() {
+        var name = document.getElementById('cat-modal-name').value.trim();
+        var targetStr = document.getElementById('cat-modal-target').value.trim();
+        var target = targetStr ? parseFloat(targetStr) : null;
+        if (!name) { alert('Name is required.'); return; }
+
+        var url, body;
+        if (editingCatId !== null) {
+            url = '/categories/' + editingCatId + '/update';
+            body = {name: name, target_pct: target};
+        } else {
+            url = '/categories/create';
+            body = {name: name, target_pct: target};
+        }
+        api(url, body).then(function(d) {
+            if (d.ok === false) { alert(d.error || 'Error'); return; }
+            closeModal();
+            loadData();
+        });
+    };
+
+    /* Close modal on Escape or overlay click */
+    document.getElementById('cat-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeModal();
+        if (e.key === 'Enter' && document.getElementById('cat-modal').classList.contains('open')) {
+            saveCategory();
+        }
+    });
+
+    /* ── Init ── */
+    loadData();
+})();
+</script>
+{% endblock %}

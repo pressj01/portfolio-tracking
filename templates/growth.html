@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.gr-page { max-width: 1500px; margin: 0 auto; }
+.gr-page h1 { color: #e0e6ed; margin-bottom: 0.25rem; }
+.gr-controls {
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    margin-bottom: 1.2rem;
+}
+
+/* ── Category filter (reuse DA pattern) ── */
+.gr-filter-wrap { position: relative; display: inline-block; }
+.gr-filter-toggle {
+    background: #181c2a; border: 1px solid #2a2a3e; color: #c8d6e5;
+    padding: 0.45rem 1rem; border-radius: 6px; cursor: pointer;
+    font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem;
+}
+.gr-filter-toggle:hover { border-color: #7ecfff; }
+.gr-filter-arrow { font-size: 0.6rem; }
+.gr-filter-dropdown {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0;
+    background: #1a1f2e; border: 1px solid #2a2a4e; border-radius: 8px;
+    min-width: 200px; padding: 0.5rem 0; z-index: 100;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5); max-height: 300px; overflow-y: auto;
+}
+.gr-filter-dropdown.open { display: block; }
+.gr-filter-actions { display: flex; gap: 0.5rem; padding: 0.3rem 0.8rem 0.5rem; border-bottom: 1px solid #2a2a3e; }
+.gr-filter-action-btn {
+    background: none; border: none; color: #7ecfff; cursor: pointer;
+    font-size: 0.78rem; padding: 2px 4px;
+}
+.gr-filter-action-btn:hover { text-decoration: underline; }
+.gr-filter-option {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.8rem; cursor: pointer; font-size: 0.85rem; color: #c8d6e5;
+}
+.gr-filter-option:hover { background: rgba(255,255,255,0.04); }
+
+/* ── Period buttons ── */
+.gr-period-bar { display: flex; gap: 0.3rem; }
+.gr-pbtn {
+    background: #181c2a; border: 1px solid #2a2a3e; color: #888;
+    padding: 0.35rem 0.7rem; border-radius: 5px; cursor: pointer;
+    font-size: 0.8rem; font-weight: 600; transition: all 0.15s;
+}
+.gr-pbtn:hover { border-color: #7ecfff; color: #c8d6e5; }
+.gr-pbtn.active { background: rgba(126,207,255,0.15); border-color: #7ecfff; color: #7ecfff; }
+
+/* ── Spinner ── */
+.gr-spinner {
+    width: 18px; height: 18px; border: 2px solid #2a2a3e;
+    border-top-color: #7ecfff; border-radius: 50%;
+    display: none;
+}
+.gr-spinner.visible { display: inline-block; animation: gr-spin 0.7s linear infinite; }
+@keyframes gr-spin { to { transform: rotate(360deg); } }
+
+/* ── Summary cards ── */
+.gr-summary {
+    display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.2rem;
+}
+.gr-card {
+    background: #181c2a; border: 1px solid #2a2a3e; border-radius: 8px;
+    padding: 0.6rem 1rem; flex: 1; min-width: 140px; text-align: center;
+}
+.gr-card-label { color: #888; font-size: 0.75rem; margin-bottom: 0.2rem; }
+.gr-card-value { color: #e0e6ed; font-size: 1.1rem; font-weight: 700; }
+.gr-card-pos { color: #00e89a; }
+.gr-card-neg { color: #ff6b6b; }
+
+/* ── Charts ── */
+.gr-chart-full { margin-bottom: 1.2rem; }
+.gr-chart-full > div {
+    background: #181c2a; border: 1px solid #2a2a3e; border-radius: 8px;
+    padding: 0.5rem; min-height: 300px;
+}
+.gr-chart-row { display: flex; gap: 1rem; margin-bottom: 1.2rem; }
+.gr-chart-half { flex: 1; min-width: 0; }
+.gr-chart-half > div {
+    background: #181c2a; border: 1px solid #2a2a3e; border-radius: 8px;
+    padding: 0.5rem; min-height: 300px;
+}
+.gr-heatmap-wrap > div {
+    background: #181c2a; border: 1px solid #2a2a3e; border-radius: 8px;
+    padding: 0.5rem;
+}
+
+/* ── Bar period sub-buttons ── */
+.gr-bar-period { display: flex; gap: 0.25rem; margin-bottom: 0.4rem; }
+.gr-bar-pbtn {
+    background: #111124; border: 1px solid #2a2a3e; color: #666;
+    padding: 0.2rem 0.5rem; border-radius: 4px; cursor: pointer;
+    font-size: 0.72rem; font-weight: 600;
+}
+.gr-bar-pbtn:hover { color: #c8d6e5; border-color: #4a4a6e; }
+.gr-bar-pbtn.active { color: #7ecfff; border-color: #7ecfff; background: rgba(126,207,255,0.1); }
+
+.gr-error { color: #ff6b6b; text-align: center; padding: 2rem; }
+</style>
+
+<div class="gr-page">
+    <h1>Portfolio Growth</h1>
+
+    <div class="gr-controls">
+        <!-- Category filter -->
+        {% if all_categories %}
+        <div class="gr-filter-wrap">
+            <button class="gr-filter-toggle" id="gr-filter-toggle" onclick="grToggleDropdown(event)">
+                <span id="gr-filter-label">All Categories</span>
+                <span class="gr-filter-arrow">&#9660;</span>
+            </button>
+            <div class="gr-filter-dropdown" id="gr-filter-dropdown">
+                <div class="gr-filter-actions">
+                    <button class="gr-filter-action-btn" onclick="grSelectAll()">Select All</button>
+                    <button class="gr-filter-action-btn" onclick="grClearAll()">Clear</button>
+                </div>
+                {% for c in all_categories %}
+                <label class="gr-filter-option">
+                    <input type="checkbox" class="gr-cat-cb" value="{{ c }}" checked onchange="grOnFilterChange()">
+                    {{ c }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Period buttons -->
+        <div class="gr-period-bar">
+            <button class="gr-pbtn" data-period="7d" onclick="grSetPeriod('7d')">7D</button>
+            <button class="gr-pbtn" data-period="1mo" onclick="grSetPeriod('1mo')">1M</button>
+            <button class="gr-pbtn" data-period="3mo" onclick="grSetPeriod('3mo')">3M</button>
+            <button class="gr-pbtn" data-period="6mo" onclick="grSetPeriod('6mo')">6M</button>
+            <button class="gr-pbtn active" data-period="1y" onclick="grSetPeriod('1y')">1Y</button>
+            <button class="gr-pbtn" data-period="5y" onclick="grSetPeriod('5y')">5Y</button>
+            <button class="gr-pbtn" data-period="max" onclick="grSetPeriod('max')">All</button>
+        </div>
+
+        <div class="gr-spinner" id="gr-spinner"></div>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="gr-summary" id="gr-summary" style="display:none">
+        <div class="gr-card">
+            <div class="gr-card-label">Portfolio Value</div>
+            <div class="gr-card-value" id="gr-val">—</div>
+        </div>
+        <div class="gr-card">
+            <div class="gr-card-label">Total Return $</div>
+            <div class="gr-card-value" id="gr-ret-dollar">—</div>
+        </div>
+        <div class="gr-card">
+            <div class="gr-card-label">Total Return %</div>
+            <div class="gr-card-value" id="gr-ret-pct">—</div>
+        </div>
+        <div class="gr-card">
+            <div class="gr-card-label">Best Performer</div>
+            <div class="gr-card-value gr-card-pos" id="gr-best">—</div>
+        </div>
+        <div class="gr-card">
+            <div class="gr-card-label">Worst Performer</div>
+            <div class="gr-card-value gr-card-neg" id="gr-worst">—</div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="gr-chart-full"><div id="gr-chart-value"></div></div>
+    <div class="gr-chart-full"><div id="gr-chart-perf"></div></div>
+
+    <div class="gr-chart-row">
+        <div class="gr-chart-half">
+            <div class="gr-bar-period" id="gr-bar-period-ticker">
+                <button class="gr-bar-pbtn active" data-bp="main" onclick="grSetBarPeriod('ticker','main')">Current</button>
+                <button class="gr-bar-pbtn" data-bp="1y" onclick="grSetBarPeriod('ticker','1y')">12M</button>
+                <button class="gr-bar-pbtn" data-bp="2026" onclick="grSetBarPeriod('ticker','2026')">2026</button>
+                <button class="gr-bar-pbtn" data-bp="2025" onclick="grSetBarPeriod('ticker','2025')">2025</button>
+            </div>
+            <div id="gr-chart-bar-ticker"></div>
+        </div>
+        <div class="gr-chart-half">
+            <div class="gr-bar-period" id="gr-bar-period-cat">
+                <button class="gr-bar-pbtn active" data-bp="main" onclick="grSetBarPeriod('cat','main')">Current</button>
+                <button class="gr-bar-pbtn" data-bp="1y" onclick="grSetBarPeriod('cat','1y')">12M</button>
+                <button class="gr-bar-pbtn" data-bp="2026" onclick="grSetBarPeriod('cat','2026')">2026</button>
+                <button class="gr-bar-pbtn" data-bp="2025" onclick="grSetBarPeriod('cat','2025')">2025</button>
+            </div>
+            <div id="gr-chart-bar-cat"></div>
+        </div>
+    </div>
+
+    <div class="gr-chart-wrap"><div id="gr-chart-cat-compare"></div></div>
+
+    <div class="gr-heatmap-wrap"><div id="gr-chart-heatmap"></div></div>
+
+    <div class="gr-error" id="gr-error" style="display:none"></div>
+</div>
+
+<script>
+(function() {
+    var activePeriod = '1y';
+    var cfg = { responsive: true };
+    var barCache = {};  // cache bar data for sub-period switches
+
+    function fmt$(v) { return '$' + Math.round(v).toLocaleString(); }
+
+    // ── Category filter ──────────────────────────────────────────
+    window.grToggleDropdown = function(e) {
+        e.stopPropagation();
+        document.getElementById('gr-filter-dropdown').classList.toggle('open');
+    };
+    document.addEventListener('click', function() {
+        document.getElementById('gr-filter-dropdown').classList.remove('open');
+    });
+    window.grSelectAll = function() {
+        document.querySelectorAll('.gr-cat-cb').forEach(function(cb) { cb.checked = true; });
+        grOnFilterChange();
+    };
+    window.grClearAll = function() {
+        document.querySelectorAll('.gr-cat-cb').forEach(function(cb) { cb.checked = false; });
+        grOnFilterChange();
+    };
+    window.grOnFilterChange = function() {
+        var checked = Array.from(document.querySelectorAll('.gr-cat-cb:checked')).map(function(cb) { return cb.value; });
+        var total = document.querySelectorAll('.gr-cat-cb').length;
+        var label = document.getElementById('gr-filter-label');
+        if (checked.length === total && total > 0) {
+            label.textContent = 'All Categories';
+        } else if (checked.length === 0) {
+            label.textContent = 'No Categories';
+        } else if (checked.length === 1) {
+            label.textContent = checked[0];
+        } else {
+            label.textContent = checked.length + ' Categories';
+        }
+        loadData();
+    };
+
+    // ── Period buttons ───────────────────────────────────────────
+    window.grSetPeriod = function(p) {
+        activePeriod = p;
+        document.querySelectorAll('.gr-pbtn').forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.period === p);
+        });
+        loadData();
+    };
+
+    // ── Bar chart sub-period ─────────────────────────────────────
+    window.grSetBarPeriod = function(which, bp) {
+        var container = document.getElementById('gr-bar-period-' + (which === 'cat' ? 'cat' : 'ticker'));
+        container.querySelectorAll('.gr-bar-pbtn').forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.bp === bp);
+        });
+        if (bp === 'main') {
+            // Use current period data already loaded
+            if (barCache[which]) renderBar(which, barCache[which]);
+        } else {
+            // Fetch with the sub-period
+            loadBarData(which, bp);
+        }
+    };
+
+    function loadBarData(which, bp) {
+        var cats = getSelectedCategories();
+        var url = '/growth/data?period=' + encodeURIComponent(bp) +
+                  (cats ? '&categories=' + encodeURIComponent(cats) : '');
+        fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.error) return;
+            if (which === 'ticker' && d.bar_by_ticker) {
+                renderPlotly('gr-chart-bar-ticker', d.bar_by_ticker);
+            }
+            if (which === 'cat' && d.bar_by_category) {
+                renderPlotly('gr-chart-bar-cat', d.bar_by_category);
+            }
+        });
+    }
+
+    function getSelectedCategories() {
+        var checked = Array.from(document.querySelectorAll('.gr-cat-cb:checked')).map(function(cb) { return cb.value; });
+        var total = document.querySelectorAll('.gr-cat-cb').length;
+        if (total > 0 && checked.length === total) return null;  // all checked = no filter
+        if (checked.length === 0) return '__none__';  // none checked
+        return checked.join(',');
+    }
+
+    // ── Main data loader ─────────────────────────────────────────
+    function loadData() {
+        var spinner = document.getElementById('gr-spinner');
+        spinner.classList.add('visible');
+        document.getElementById('gr-error').style.display = 'none';
+
+        var cats = getSelectedCategories();
+        if (cats === '__none__') {
+            spinner.classList.remove('visible');
+            document.getElementById('gr-summary').style.display = 'none';
+            ['gr-chart-value','gr-chart-perf','gr-chart-bar-ticker','gr-chart-bar-cat','gr-chart-cat-compare','gr-chart-heatmap'].forEach(function(id) {
+                var el = document.getElementById(id); if (el) Plotly.purge(el);
+            });
+            document.getElementById('gr-error').textContent = 'No categories selected.';
+            document.getElementById('gr-error').style.display = 'block';
+            return;
+        }
+        var url = '/growth/data?period=' + encodeURIComponent(activePeriod) +
+                  (cats ? '&categories=' + encodeURIComponent(cats) : '');
+
+        fetch(url)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                spinner.classList.remove('visible');
+                if (d.error) {
+                    document.getElementById('gr-error').textContent = d.error;
+                    document.getElementById('gr-error').style.display = 'block';
+                    document.getElementById('gr-summary').style.display = 'none';
+                    return;
+                }
+                renderAll(d);
+            })
+            .catch(function(e) {
+                spinner.classList.remove('visible');
+                document.getElementById('gr-error').textContent = 'Failed to load data: ' + e;
+                document.getElementById('gr-error').style.display = 'block';
+            });
+    }
+
+    function renderPlotly(elId, fig) {
+        var el = document.getElementById(elId);
+        if (!el || !fig) return;
+        Plotly.purge(el);
+        Plotly.newPlot(el, fig.data, fig.layout, cfg);
+    }
+
+    function renderBar(which, fig) {
+        var id = which === 'cat' ? 'gr-chart-bar-cat' : 'gr-chart-bar-ticker';
+        renderPlotly(id, fig);
+    }
+
+    function renderAll(d) {
+        // Summary cards
+        var s = d.summary || {};
+        document.getElementById('gr-summary').style.display = 'flex';
+        document.getElementById('gr-val').textContent = fmt$(s.total_value || 0);
+        var retD = document.getElementById('gr-ret-dollar');
+        var rd = s.total_return_dollar || 0;
+        retD.textContent = (rd >= 0 ? '+' : '') + fmt$(rd);
+        retD.className = 'gr-card-value ' + (rd >= 0 ? 'gr-card-pos' : 'gr-card-neg');
+        var retP = document.getElementById('gr-ret-pct');
+        var rp = s.total_return_pct || 0;
+        retP.textContent = (rp >= 0 ? '+' : '') + rp.toFixed(2) + '%';
+        retP.className = 'gr-card-value ' + (rp >= 0 ? 'gr-card-pos' : 'gr-card-neg');
+        document.getElementById('gr-best').textContent = (s.best_ticker || '—') + ' ' + (s.best_return >= 0 ? '+' : '') + (s.best_return || 0).toFixed(1) + '%';
+        document.getElementById('gr-worst').textContent = (s.worst_ticker || '—') + ' ' + (s.worst_return || 0).toFixed(1) + '%';
+
+        // Charts
+        renderPlotly('gr-chart-value', d.portfolio_value);
+        renderPlotly('gr-chart-perf', d.portfolio_perf);
+        renderPlotly('gr-chart-bar-ticker', d.bar_by_ticker);
+        renderPlotly('gr-chart-bar-cat', d.bar_by_category);
+        renderPlotly('gr-chart-cat-compare', d.category_comparison);
+        renderPlotly('gr-chart-heatmap', d.heatmap);
+
+        // Cache bar data for sub-period "Current" button
+        barCache['ticker'] = d.bar_by_ticker;
+        barCache['cat'] = d.bar_by_category;
+
+        // Reset bar period buttons to "Current"
+        document.querySelectorAll('.gr-bar-period .gr-bar-pbtn').forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.bp === 'main');
+        });
+    }
+
+    // ── Init ─────────────────────────────────────────────────────
+    loadData();
+})();
+</script>
+{% endblock %}

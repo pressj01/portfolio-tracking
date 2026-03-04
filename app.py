@@ -92,6 +92,7 @@ PCT_COLS = {
     "percent_change", "gain_or_loss_percentage", "annual_yield_on_cost",
     "current_annual_yield", "percent_of_account", "account_yield_on_cost",
     "current_yield_of_account", "paid_for_itself",
+    "price_return_pct", "total_return_pct",
 }
 
 DECIMAL_COLS = {
@@ -110,6 +111,12 @@ def format_dashboard(df):
             df[col] = df[col].apply(lambda v: f"{v * 100:.2f}%" if pd.notna(v) else "")
         elif col in DECIMAL_COLS:
             df[col] = df[col].apply(lambda v: f"{v:.3f}" if pd.notna(v) else "")
+
+    # Format purchase_date as M/D/YYYY (no leading zeros)
+    if "purchase_date" in df.columns:
+        df["purchase_date"] = df["purchase_date"].apply(
+            lambda v: f"{v.month}/{v.day}/{v.year}" if pd.notna(v) and hasattr(v, "strftime") else ""
+        )
 
     # Blank out any remaining NaN / "nan" in unformatted columns (e.g. div_frequency, classification_type)
     df = df.fillna("").astype(str)
@@ -327,6 +334,13 @@ def index():
 
     row_count = len(df)
     if not df.empty:
+        # Compute Price Return % and Total Return % (as fractions for PCT_COLS formatting)
+        _pv = pd.to_numeric(df.get("purchase_value"), errors="coerce").fillna(0)
+        _gl = pd.to_numeric(df.get("gain_or_loss"), errors="coerce").fillna(0)
+        _td = pd.to_numeric(df.get("total_divs_received"), errors="coerce").fillna(0)
+        df["price_return_pct"] = (_gl / _pv.replace(0, float("nan"))).fillna(0)
+        df["total_return_pct"] = ((_gl + _td) / _pv.replace(0, float("nan"))).fillna(0)
+
         df = format_dashboard(df)
         df = df.drop(columns=[c for c in HIDDEN_COLS if c in df.columns])
 
@@ -348,7 +362,7 @@ def do_import():
         flash(message, "success")
     except Exception as e:
         flash(f"Import failed: {e}", "error")
-    return redirect(url_for("index"))
+    return redirect(url_for("manage"))
 
 
 @app.route("/manage")
@@ -381,6 +395,38 @@ def populate(table):
 
 
 # ── Dividend Analysis page ─────────────────────────────────────
+
+_CLASSIFICATION_NAMES = {
+    "A": "Anchors", "B": "Boosters", "G": "Growth", "J": "Juicers",
+    "BDC": "BDC", "HA": "Hedged Anchor", "GS": "Gold Silver",
+}
+
+
+def _enrich_category_names(df, conn, pid):
+    """Add 'category_name' column to df by joining ticker_categories + categories.
+    Falls back to classification_type mapped through _CLASSIFICATION_NAMES, then raw code."""
+    if df.empty:
+        df["category_name"] = ""
+        return df
+    try:
+        cat_map = pd.read_sql(
+            "SELECT tc.ticker, c.name AS category_name "
+            "FROM dbo.ticker_categories tc "
+            "JOIN dbo.categories c ON c.id = tc.category_id "
+            "WHERE tc.profile_id = ?", conn, params=[pid]
+        )
+        df = df.merge(cat_map, on="ticker", how="left")
+    except Exception:
+        df["category_name"] = None
+    # Fallback: use mapped classification_type for tickers with no category assignment
+    if "classification_type" in df.columns:
+        mask = df["category_name"].isna() | (df["category_name"] == "")
+        df.loc[mask, "category_name"] = df.loc[mask, "classification_type"].map(
+            lambda c: _CLASSIFICATION_NAMES.get(str(c).strip(), str(c).strip()) if pd.notna(c) else "Other"
+        )
+    df["category_name"] = df["category_name"].fillna("Other")
+    return df
+
 
 def _da_build_charts_and_totals(df, conn):
     """Build charts_da and totals for dividend analysis from a (possibly filtered) DataFrame."""
@@ -448,14 +494,15 @@ def _da_build_charts_and_totals(df, conn):
     # Chart 5: Paid For Itself
     paid_df = df_c.copy()
     paid_df['paid_for_itself']     = pd.to_numeric(paid_df['paid_for_itself'], errors='coerce')
-    paid_df['classification_type'] = paid_df['classification_type'].fillna('Other').astype(str)
+    cat_col = 'category_name' if 'category_name' in paid_df.columns else 'classification_type'
+    paid_df[cat_col] = paid_df[cat_col].fillna('Other').astype(str)
     paid_df = paid_df[paid_df['paid_for_itself'] > 0].copy()
     paid_df['paid_pct'] = (paid_df['paid_for_itself'] * 100).round(1)
     paid_df = paid_df.sort_values('paid_pct', ascending=False)
     if not paid_df.empty:
         fig5 = go.Figure()
-        for ctype in paid_df['classification_type'].unique().tolist():
-            g = paid_df[paid_df['classification_type'] == ctype]
+        for ctype in paid_df[cat_col].unique().tolist():
+            g = paid_df[paid_df[cat_col] == ctype]
             fig5.add_trace(go.Bar(
                 x=g['ticker'].tolist(), y=g['paid_pct'].tolist(), name=ctype,
                 text=[f"{v:.1f}%" for v in g['paid_pct'].tolist()],
@@ -474,19 +521,19 @@ def _da_build_charts_and_totals(df, conn):
         )
         charts_da['paid_for_itself'] = json.dumps(fig5, cls=plotly.utils.PlotlyJSONEncoder)
 
-    # Chart 6: Total Dividends by Asset Type (pie)
+    # Chart 6: Total Dividends by Category (pie)
     type_df  = df_c.copy()
-    type_df['classification_type'] = type_df['classification_type'].fillna('Other').astype(str)
-    type_grp = type_df.groupby('classification_type')['total_divs_received'].sum().reset_index()
+    type_df[cat_col] = type_df[cat_col].fillna('Other').astype(str)
+    type_grp = type_df.groupby(cat_col)['total_divs_received'].sum().reset_index()
     type_grp = type_grp[type_grp['total_divs_received'] > 0]
     if not type_grp.empty:
         fig6 = go.Figure(go.Pie(
-            labels=type_grp['classification_type'].tolist(),
+            labels=type_grp[cat_col].tolist(),
             values=type_grp['total_divs_received'].tolist(),
             hovertemplate='<b>%{label}</b><br>Total Dividends: $%{value:,.2f}<br>Share: %{percent}<extra></extra>',
             textinfo='label+percent',
         ))
-        fig6.update_layout(title='Total Dividends Received by Asset Type',
+        fig6.update_layout(title='Total Dividends Received by Category',
             template='plotly_dark', paper_bgcolor='#1a1f2e')
         charts_da['by_type'] = json.dumps(fig6, cls=plotly.utils.PlotlyJSONEncoder)
 
@@ -597,9 +644,9 @@ def _da_build_charts_and_totals(df, conn):
     )
     charts_da['projected_monthly'] = json.dumps(fig2, cls=plotly.utils.PlotlyJSONEncoder)
 
-    # Chart 3: Monthly Dividends Received (always portfolio-wide)
+    # Chart 3: Monthly Dividends Received (past 12 months, always portfolio-wide)
     try:
-        da_window     = [_add_m(month_start, i) for i in range(12)]
+        da_window     = [_add_m(month_start, i) for i in range(-11, 1)]
         win_start_key = da_window[0].year  * 100 + da_window[0].month
         win_end_key   = da_window[-1].year * 100 + da_window[-1].month
         mp_df = pd.read_sql("""
@@ -660,7 +707,8 @@ def dividend_analysis():
     except Exception:
         df = pd.DataFrame()
 
-    all_types = sorted(df['classification_type'].dropna().unique().tolist()) if not df.empty else []
+    df = _enrich_category_names(df, conn, pid)
+    all_types = sorted(df['category_name'].dropna().unique().tolist()) if not df.empty else []
     charts_da, totals = _da_build_charts_and_totals(df, conn)
     conn.close()
     return render_template("dividend_analysis.html",
@@ -692,8 +740,9 @@ def dividend_analysis_data():
         """, conn, params=[pid])
     except Exception:
         df = pd.DataFrame()
+    df = _enrich_category_names(df, conn, pid)
     if type_list and not df.empty:
-        df = df[df['classification_type'].isin(type_list)]
+        df = df[df['category_name'].isin(type_list)]
     charts_da, totals = _da_build_charts_and_totals(df, conn)
     conn.close()
     safe_totals = {k: (float(v) if v == v else 0.0) for k, v in totals.items()}
@@ -1458,6 +1507,100 @@ def total_return_data():
 
     except Exception as e:
         return jsonify({"error": str(e), "detail": traceback.format_exc(limit=3)}), 500
+
+
+# ── Ticker Return Chart (popup) ────────────────────────────────
+
+@app.route("/ticker_return_chart/<ticker>")
+def ticker_return_chart(ticker):
+    """AJAX: price return % and total return % chart since purchase date."""
+    import warnings
+    import yfinance as yf
+    warnings.filterwarnings("ignore")
+
+    pid = get_profile_id()
+    conn = get_connection()
+    try:
+        row = pd.read_sql("""
+            SELECT purchase_date, price_paid, description
+            FROM dbo.all_account_info
+            WHERE ticker = ? AND profile_id = ?
+              AND purchase_value IS NOT NULL AND purchase_value > 0
+        """, conn, params=[ticker, pid])
+    except Exception:
+        row = pd.DataFrame()
+    conn.close()
+
+    if row.empty:
+        return jsonify({"error": f"No data found for {ticker}"}), 404
+
+    purchase_date = pd.to_datetime(row.iloc[0]["purchase_date"])
+    price_paid = float(row.iloc[0]["price_paid"])
+    description = row.iloc[0].get("description", ticker) or ticker
+
+    if pd.isna(purchase_date) or price_paid <= 0:
+        return jsonify({"error": f"Missing purchase date or price for {ticker}"}), 404
+
+    start_str = purchase_date.strftime("%Y-%m-%d")
+    raw = yf.download(ticker, start=start_str, progress=False,
+                      auto_adjust=False, actions=True)
+
+    if raw.empty:
+        return jsonify({"error": f"No Yahoo Finance data for {ticker}"}), 404
+
+    # Handle yfinance 1.2.0 MultiIndex columns
+    if isinstance(raw.columns, pd.MultiIndex):
+        close = raw["Close"][ticker] if ticker in raw["Close"].columns else raw["Close"].iloc[:, 0]
+        divs = raw["Dividends"][ticker] if ticker in raw["Dividends"].columns else raw["Dividends"].iloc[:, 0]
+    else:
+        close = raw["Close"]
+        divs = raw["Dividends"]
+
+    close = close.squeeze()
+    divs = divs.squeeze()
+    cum_divs = divs.cumsum()
+
+    price_return = (close - price_paid) / price_paid * 100
+    total_return = (close - price_paid + cum_divs) / price_paid * 100
+
+    dates = close.index.strftime("%Y-%m-%d").tolist()
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=dates, y=price_return.round(2).tolist(),
+        mode="lines", name="Price Return %",
+        line=dict(color="#7ecfff", width=2),
+        hovertemplate="%{y:.2f}%<extra>Price</extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=dates, y=total_return.round(2).tolist(),
+        mode="lines", name="Total Return %",
+        line=dict(color="#4dff91", width=2),
+        fill="tonexty", fillcolor="rgba(77,255,145,0.08)",
+        hovertemplate="%{y:.2f}%<extra>Total</extra>",
+    ))
+    fig.add_hline(y=0, line_dash="dot", line_color="#556677", line_width=1)
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
+        title=dict(text=f"{ticker} — Return Since Purchase",
+                   font=dict(size=16, color="#e0e8f5")),
+        xaxis=dict(title="", gridcolor="#1a2233"),
+        yaxis=dict(title="Return %", gridcolor="#1a2233", ticksuffix="%"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="center", x=0.5, font=dict(size=12)),
+        margin=dict(l=50, r=20, t=60, b=40),
+        hovermode="x unified",
+    )
+
+    fig_json = json.loads(fig.to_json())
+    return jsonify({
+        "data": fig_json["data"],
+        "layout": fig_json["layout"],
+        "description": description,
+        "purchase_date": start_str,
+        "price_paid": price_paid,
+    })
 
 
 # ── Single ETF Total Return page ───────────────────────────────
@@ -2548,7 +2691,7 @@ def _grade_portfolio(returns_df, weights_arr, bench_ret=None):
             return 60 + 20 * (fair - val) / (fair - good)
         if val <= poor:
             return 40 + 20 * (poor - val) / (poor - fair)
-        return max(0.0, 20.0)
+        return max(0.0, 40 * (1 - (val - poor) / poor)) if poor != 0 else 0.0
 
     w = np.array(weights_arr, dtype=float)
     w_sum = w.sum()
@@ -2685,6 +2828,63 @@ def _max_drawdown(close):
         return float(drawdowns.min())
     except Exception:
         return None
+
+
+def _ticker_score(close, daily_ret, bench_ret=None):
+    """Compute individual ticker risk score (0-100).
+    Returns (score, sharpe, sortino, calmar, omega, mdd, down_capture)."""
+    import math
+
+    def safe(v):
+        if v is None: return None
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)): return None
+        return v
+
+    def sm(val, thr):
+        if val is None: return None
+        exc, good, fair, poor = thr
+        if val >= exc: return 100.0
+        if val >= good: return 80 + 20 * (val - good) / (exc - good)
+        if val >= fair: return 60 + 20 * (val - fair) / (good - fair)
+        if val >= poor: return 40 + 20 * (val - poor) / (fair - poor)
+        return max(0.0, 40 * val / poor) if poor != 0 else 0.0
+
+    def sl(val, thr):
+        if val is None: return None
+        exc, good, fair, poor = thr
+        if val <= exc: return 100.0
+        if val <= good: return 80 + 20 * (good - val) / (good - exc)
+        if val <= fair: return 60 + 20 * (fair - val) / (fair - good)
+        if val <= poor: return 40 + 20 * (poor - val) / (poor - fair)
+        return max(0.0, 40 * (1 - (val - poor) / poor)) if poor != 0 else 0.0
+
+    sharpe_v = safe(_sharpe(close))
+    sortino_v = safe(_sortino(close))
+    calmar_v = safe(_calmar(close))
+    omega_v = safe(_omega(daily_ret))
+    mdd_v = safe(_max_drawdown(close))
+    _, dc = _capture_ratios(daily_ret, bench_ret) if bench_ret is not None else (None, None)
+    dc = safe(dc)
+
+    mdd_pct = mdd_v * 100 if mdd_v is not None else None
+    sub = {
+        "sharpe":       sm(sharpe_v,  (1.5, 1.0, 0.5, 0.0)),
+        "sortino":      sm(sortino_v, (2.0, 1.5, 1.0, 0.5)),
+        "calmar":       sm(calmar_v,  (1.5, 1.0, 0.5, 0.2)),
+        "omega":        sm(omega_v,   (2.0, 1.5, 1.2, 1.0)),
+        "max_drawdown": sl(abs(mdd_pct) if mdd_pct is not None else None, (10, 20, 30, 40)),
+        "down_capture": sl(dc, (80, 90, 100, 120)),
+    }
+    gw = {"sharpe": 30, "sortino": 20, "calmar": 15,
+          "omega": 15, "max_drawdown": 15, "down_capture": 5}
+    tw = ts = 0.0
+    for k, w in gw.items():
+        sc = sub.get(k)
+        if sc is not None:
+            tw += w
+            ts += sc * w
+    score = round(ts / tw, 1) if tw > 0 else 0.0
+    return score, sharpe_v, sortino_v, calmar_v, omega_v, mdd_v, dc
 
 
 def _portfolio_sharpe(weights, returns_df, risk_free_annual=0.05):
@@ -4451,16 +4651,33 @@ def watchlist_data():
             " ".join(all_tickers),
             period="1y",
             interval="1d",
-            auto_adjust=True,
+            auto_adjust=False,
+            actions=True,
             progress=False,
         )
 
         if raw.empty:
             return jsonify(watching=[], sold=[], counts=counts, error="No price data returned.")
 
-        close_df = raw["Close"]
-        high_df = raw["High"]
-        low_df = raw["Low"]
+        # Use Adj Close for technical indicators, raw Close for NAV erosion
+        try:
+            _top = raw.columns.get_level_values(0)
+            has_multi = True
+        except AttributeError:
+            has_multi = False
+
+        if has_multi:
+            close_df = raw["Adj Close"] if "Adj Close" in _top else raw["Close"]
+            unadj_close_df = raw["Close"]
+            high_df = raw["High"]
+            low_df = raw["Low"]
+            divs_df = raw["Dividends"] if "Dividends" in _top else None
+        else:
+            close_df = raw[["Adj Close"]] if "Adj Close" in raw.columns else raw[["Close"]]
+            unadj_close_df = raw[["Close"]]
+            high_df = raw[["High"]]
+            low_df = raw[["Low"]]
+            divs_df = raw[["Dividends"]] if "Dividends" in raw.columns else None
 
         empty = pd.Series([], dtype=float)
 
@@ -4494,16 +4711,16 @@ def watchlist_data():
             change_1d = round((price - prev_price) / prev_price * 100, 2) \
                 if price is not None and prev_price else None
 
-            # Dividend yield (TTM)
+            # Dividend yield (TTM) — use downloaded dividends data (reliable)
             div_yield = None
-            try:
-                info = yf.Ticker(ticker).info
-                raw_yield = info.get("dividendYield")
-                if raw_yield is not None:
-                    # yfinance may return as fraction (0.0351) or already as percent (3.51)
-                    div_yield = round(raw_yield if raw_yield > 1 else raw_yield * 100, 2)
-            except Exception:
-                pass
+            if divs_df is not None and price is not None and price > 0:
+                try:
+                    t_divs = divs_df[ticker].dropna() if ticker in divs_df.columns else pd.Series([], dtype=float)
+                    ttm_divs = t_divs[t_divs > 0].sum()
+                    if ttm_divs > 0:
+                        div_yield = round(ttm_divs / price * 100, 2)
+                except Exception:
+                    pass
 
             # 1-year total return %
             one_yr_ret = None
@@ -4512,10 +4729,16 @@ def watchlist_data():
                 if first_price > 0:
                     one_yr_ret = round((price - first_price) / first_price * 100, 2)
 
-            # NAV erosion flag: 1y price < -5% while paying dividends
+            # NAV erosion flag: unadjusted 1y price decline > 5%
             nav_erosion = False
-            if one_yr_ret is not None and one_yr_ret < -5 and div_yield is not None and div_yield > 0:
-                nav_erosion = True
+            unadj_close = unadj_close_df[ticker].dropna() if ticker in unadj_close_df.columns else pd.Series([], dtype=float)
+            if len(unadj_close) >= 2:
+                unadj_first = float(unadj_close.iloc[0])
+                unadj_last = float(unadj_close.iloc[-1])
+                if unadj_first > 0:
+                    unadj_ret = (unadj_last - unadj_first) / unadj_first * 100
+                    if unadj_ret < -5:
+                        nav_erosion = True
 
             ticker_info[ticker] = {
                 "price": round(price, 2) if price is not None else None,
@@ -5283,7 +5506,7 @@ def portfolio_optimizer_data():
             if val <= good: return 80 + 20 * (good - val) / (good - exc)
             if val <= fair: return 60 + 20 * (fair - val) / (fair - good)
             if val <= poor: return 40 + 20 * (poor - val) / (poor - fair)
-            return max(0.0, 20.0)
+            return max(0.0, 40 * (1 - (val - poor) / poor)) if poor != 0 else 0.0
 
         sharpe_v = safe(_sharpe(tc))
         sortino_v = safe(_sortino(tc))
@@ -7358,6 +7581,7 @@ def profiles_delete(pid):
     try:
         # Delete all data for this profile from profiled tables
         for table in [
+            "ticker_categories", "categories",
             "all_account_info", "income_tracking",
             "weekly_payouts", "weekly_payout_tickers",
             "monthly_payouts", "monthly_payout_tickers",
@@ -7498,6 +7722,715 @@ def portfolio_manual_save():
         return jsonify({"success": True, "message": msg, "count": row_count})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Portfolio Growth page ─────────────────────────────────────────────────────
+
+@app.route("/growth")
+def growth_page():
+    """Portfolio Growth page — charts loaded via AJAX."""
+    pid = get_profile_id()
+    conn = get_connection()
+    ensure_tables_exist(conn)
+    # Get category list for filter dropdown
+    df = pd.read_sql(
+        "SELECT ticker, classification_type FROM dbo.all_account_info "
+        "WHERE profile_id=? AND purchase_value IS NOT NULL AND purchase_value > 0",
+        conn, params=[pid]
+    )
+    df = _enrich_category_names(df, conn, pid)
+    conn.close()
+    all_cats = sorted(df["category_name"].dropna().unique().tolist()) if not df.empty else []
+    return render_template("growth.html", all_categories=all_cats)
+
+
+@app.route("/growth/data")
+def growth_data():
+    """AJAX: portfolio growth charts filtered by period and categories."""
+    import yfinance as yf
+    import warnings
+    warnings.filterwarnings("ignore")
+    from datetime import date as _date, timedelta
+
+    period = request.args.get("period", "1y")
+    cats_param = request.args.get("categories", "").strip()
+    cat_list = [c.strip() for c in cats_param.split(",") if c.strip()] if cats_param else []
+
+    period_map = {
+        "7d":  (dict(period="7d"),  "1d"),
+        "1mo": (dict(period="1mo"), "1d"),
+        "3mo": (dict(period="3mo"), "1d"),
+        "6mo": (dict(period="6mo"), "1d"),
+        "1y":  (dict(period="1y"),  "1d"),
+        "5y":  (dict(period="5y"),  "1wk"),
+        "max": (dict(period="max"), "1mo"),
+    }
+    if period.isdigit() and len(period) == 4:
+        yr = int(period)
+        today = _date.today()
+        yf_kwargs = dict(start=f"{yr}-01-01",
+                         end=today.strftime("%Y-%m-%d") if yr == today.year else f"{yr}-12-31")
+        yf_interval = "1d"
+    else:
+        yf_range, yf_interval = period_map.get(period, (dict(period="1y"), "1d"))
+        yf_kwargs = yf_range
+
+    pid = get_profile_id()
+    conn = get_connection()
+    try:
+        port = pd.read_sql("""
+            SELECT ticker, description, classification_type, quantity, purchase_value, current_value
+            FROM dbo.all_account_info
+            WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND ISNULL(quantity, 0) > 0 AND profile_id = ?
+        """, conn, params=[pid])
+    except Exception:
+        port = pd.DataFrame()
+    port = _enrich_category_names(port, conn, pid)
+    conn.close()
+
+    if port.empty:
+        return jsonify(error="No portfolio data found."), 404
+
+    # Filter by categories
+    if cat_list:
+        port = port[port["category_name"].isin(cat_list)]
+    if port.empty:
+        return jsonify(error="No holdings match the selected categories."), 404
+
+    qty_map = dict(zip(port["ticker"], pd.to_numeric(port["quantity"], errors="coerce").fillna(0)))
+    cat_map_df = port[["ticker", "category_name"]].drop_duplicates()
+    tickers = port["ticker"].tolist()
+
+    try:
+        raw = yf.download(
+            " ".join(tickers + ["SPY"]),
+            **yf_kwargs, interval=yf_interval,
+            progress=False, auto_adjust=True,
+        )
+        if raw.empty or "Close" not in raw.columns.get_level_values(0):
+            return jsonify(error="No price data returned."), 500
+    except Exception as e:
+        return jsonify(error=f"yfinance error: {e}"), 500
+
+    close = raw["Close"]
+    if isinstance(close, pd.Series):
+        # Single ticker + SPY
+        sym = tickers[0] if len(tickers) == 1 else "SPY"
+        close = close.to_frame(name=sym)
+    close = close.ffill()
+
+    # ── Build portfolio value series ──────────────────────────────────────────
+    pv = pd.Series(0.0, index=close.index)
+    for t in tickers:
+        if t in close.columns:
+            pv += close[t].fillna(0) * qty_map.get(t, 0)
+
+    # SPY benchmark normalized to same starting value
+    spy_col = close["SPY"] if "SPY" in close.columns else None
+    spy_norm = None
+    if spy_col is not None and len(spy_col.dropna()) > 1:
+        s0 = spy_col.dropna().iloc[0]
+        if s0 > 0:
+            spy_norm = (spy_col / s0) * pv.dropna().iloc[0] if len(pv.dropna()) > 0 else spy_col
+
+    dates_str = [d.strftime("%Y-%m-%d") for d in pv.index]
+
+    # ── Chart 1: Portfolio Value ──────────────────────────────────────────────
+    fig1_data = [dict(x=dates_str, y=pv.round(2).tolist(), type="scatter", mode="lines",
+                      name="Portfolio", line=dict(color="#7ecfff", width=2),
+                      hovertemplate="<b>%{x}</b><br>Value: $%{y:,.0f}<extra></extra>")]
+    if spy_norm is not None:
+        fig1_data.append(dict(x=dates_str, y=spy_norm.round(2).tolist(), type="scatter",
+                              mode="lines", name="SPY Benchmark",
+                              line=dict(color="gold", width=1.5, dash="dash"),
+                              hovertemplate="<b>%{x}</b><br>SPY: $%{y:,.0f}<extra></extra>"))
+    fig1_layout = dict(title="Portfolio Value", template="plotly_dark",
+                       yaxis=dict(title="Value ($)", tickprefix="$"),
+                       margin=dict(t=50, b=40, l=70, r=20),
+                       paper_bgcolor="#1a1f2e", plot_bgcolor="rgba(255,255,255,0.03)",
+                       legend=dict(x=0, y=1.12, orientation="h"))
+
+    # ── Chart 2: Portfolio Performance (% return) ─────────────────────────────
+    pv_clean = pv.dropna()
+    if len(pv_clean) > 0 and pv_clean.iloc[0] > 0:
+        pv_pct = ((pv_clean / pv_clean.iloc[0]) - 1) * 100
+    else:
+        pv_pct = pd.Series(0.0, index=pv.index)
+    fig2_data = [dict(x=dates_str, y=pv_pct.round(2).tolist(), type="scatter", mode="lines",
+                      name="Portfolio", line=dict(color="#7ecfff", width=2),
+                      hovertemplate="<b>%{x}</b><br>Return: %{y:.2f}%<extra></extra>")]
+    if spy_col is not None and len(spy_col.dropna()) > 1:
+        s0 = spy_col.dropna().iloc[0]
+        if s0 > 0:
+            spy_pct = ((spy_col / s0) - 1) * 100
+            fig2_data.append(dict(x=dates_str, y=spy_pct.round(2).tolist(), type="scatter",
+                                  mode="lines", name="SPY",
+                                  line=dict(color="gold", width=1.5, dash="dash"),
+                                  hovertemplate="<b>%{x}</b><br>SPY: %{y:.2f}%<extra></extra>"))
+    fig2_layout = dict(title="Portfolio Performance", template="plotly_dark",
+                       yaxis=dict(title="Return (%)", ticksuffix="%"),
+                       margin=dict(t=50, b=40, l=60, r=20),
+                       paper_bgcolor="#1a1f2e", plot_bgcolor="rgba(255,255,255,0.03)",
+                       legend=dict(x=0, y=1.12, orientation="h"))
+
+    # ── Chart 3: Bar charts (by ticker + by category) ────────────────────────
+    ticker_returns = {}
+    for t in tickers:
+        if t in close.columns:
+            s = close[t].dropna()
+            if len(s) >= 2 and s.iloc[0] > 0:
+                ticker_returns[t] = round(((s.iloc[-1] / s.iloc[0]) - 1) * 100, 2)
+
+    # By ticker
+    tr_sorted = sorted(ticker_returns.items(), key=lambda x: x[1], reverse=True)
+    bar_t_x = [x[0] for x in tr_sorted]
+    bar_t_y = [x[1] for x in tr_sorted]
+    bar_t_colors = ["#00e89a" if v >= 0 else "#ff6b6b" for v in bar_t_y]
+    fig3a_data = [dict(x=bar_t_x, y=bar_t_y, type="bar", marker=dict(color=bar_t_colors),
+                       text=[f"{v:+.1f}%" for v in bar_t_y], textposition="outside",
+                       hovertemplate="<b>%{x}</b><br>Return: %{y:.2f}%<extra></extra>")]
+    fig3a_layout = dict(title="Performance by Ticker", template="plotly_dark",
+                        xaxis=dict(tickangle=-45), yaxis=dict(title="Return (%)", ticksuffix="%"),
+                        margin=dict(t=50, b=100, l=60, r=20),
+                        paper_bgcolor="#1a1f2e", plot_bgcolor="rgba(255,255,255,0.03)")
+
+    # By category (value-weighted average)
+    cat_returns = {}
+    cat_values = {}
+    for _, row in cat_map_df.iterrows():
+        t, cat = row["ticker"], row["category_name"]
+        if t in ticker_returns:
+            cv = float(port.loc[port["ticker"] == t, "current_value"].fillna(0).iloc[0]) if len(port.loc[port["ticker"] == t]) > 0 else 0
+            cat_returns.setdefault(cat, 0.0)
+            cat_values.setdefault(cat, 0.0)
+            cat_returns[cat] += ticker_returns[t] * cv
+            cat_values[cat] += cv
+    cat_avg = {}
+    for cat in cat_returns:
+        cat_avg[cat] = round(cat_returns[cat] / cat_values[cat], 2) if cat_values[cat] > 0 else 0
+    cr_sorted = sorted(cat_avg.items(), key=lambda x: x[1], reverse=True)
+    bar_c_x = [x[0] for x in cr_sorted]
+    bar_c_y = [x[1] for x in cr_sorted]
+    bar_c_colors = ["#00e89a" if v >= 0 else "#ff6b6b" for v in bar_c_y]
+    fig3b_data = [dict(x=bar_c_x, y=bar_c_y, type="bar", marker=dict(color=bar_c_colors),
+                       text=[f"{v:+.1f}%" for v in bar_c_y], textposition="outside",
+                       hovertemplate="<b>%{x}</b><br>Return: %{y:.2f}%<extra></extra>")]
+    fig3b_layout = dict(title="Performance by Category", template="plotly_dark",
+                        yaxis=dict(title="Return (%)", ticksuffix="%"),
+                        margin=dict(t=50, b=80, l=60, r=20),
+                        paper_bgcolor="#1a1f2e", plot_bgcolor="rgba(255,255,255,0.03)")
+
+    # ── Chart 4: Heatmap ─────────────────────────────────────────────────────
+    # Compute returns for multiple windows from the downloaded data
+    today_d = _date.today()
+    hm_windows = [
+        ("1D", 1), ("7D", 7), ("1M", 30), ("3M", 91),
+        ("6M", 182), ("YTD", (today_d - _date(today_d.year, 1, 1)).days),
+        ("1Y", 365),
+    ]
+    # For longer periods we may not have data in this download — use what we have
+    hm_tickers = sorted(tickers, key=lambda t: cat_map_df.loc[cat_map_df["ticker"] == t, "category_name"].iloc[0]
+                        if len(cat_map_df.loc[cat_map_df["ticker"] == t]) > 0 else "")
+    hm_labels = [w[0] for w in hm_windows]
+    hm_z = []
+    hm_text = []
+    for t in hm_tickers:
+        row_z = []
+        row_t = []
+        for label, days in hm_windows:
+            if t not in close.columns:
+                row_z.append(0)
+                row_t.append("N/A")
+                continue
+            s = close[t].dropna()
+            if len(s) < 2:
+                row_z.append(0)
+                row_t.append("N/A")
+                continue
+            # Find the price `days` ago
+            target_date = s.index[-1] - pd.Timedelta(days=days)
+            past = s[s.index <= target_date]
+            if len(past) == 0:
+                past_price = s.iloc[0]
+            else:
+                past_price = past.iloc[-1]
+            cur_price = s.iloc[-1]
+            if past_price > 0:
+                ret = round(((cur_price / past_price) - 1) * 100, 2)
+            else:
+                ret = 0
+            row_z.append(ret)
+            row_t.append(f"{ret:+.1f}%")
+        hm_z.append(row_z)
+        hm_text.append(row_t)
+
+    # Add category labels to ticker names for heatmap y-axis
+    hm_y = []
+    for t in hm_tickers:
+        cat = cat_map_df.loc[cat_map_df["ticker"] == t, "category_name"]
+        prefix = cat.iloc[0][:3].upper() if len(cat) > 0 else ""
+        hm_y.append(f"{t}")
+
+    fig4_data = [dict(
+        z=hm_z, x=hm_labels, y=hm_y, type="heatmap",
+        text=hm_text, texttemplate="%{text}", textfont=dict(size=10),
+        colorscale=[[0, "#ff2d2d"], [0.35, "#ff6b6b"], [0.5, "#2a2a3e"], [0.65, "#00c878"], [1, "#00e89a"]],
+        zmid=0, colorbar=dict(title="%", ticksuffix="%"),
+        hovertemplate="<b>%{y}</b><br>%{x}: %{text}<extra></extra>",
+    )]
+    fig4_layout = dict(title="Holdings Heatmap — % Return by Period", template="plotly_dark",
+                       yaxis=dict(autorange="reversed", dtick=1),
+                       margin=dict(t=50, b=40, l=80, r=20),
+                       paper_bgcolor="#1a1f2e", plot_bgcolor="#1a1f2e",
+                       height=max(300, len(hm_tickers) * 22 + 100))
+
+    # ── Chart 5: Category Comparison (% return lines per category) ──────────
+    cat_colors = ["#7ecfff", "#00e89a", "#ff6b6b", "#ffc107", "#b388ff",
+                  "#ff8a65", "#4dd0e1", "#aed581", "#f48fb1", "#80cbc4"]
+    cat_groups = cat_map_df.groupby("category_name")["ticker"].apply(list).to_dict()
+    fig5_data = []
+    for ci, (cat_name, cat_tickers) in enumerate(sorted(cat_groups.items())):
+        # Build value-weighted category series (forward-fill prices)
+        cat_val = pd.Series(0.0, index=close.index)
+        for t in cat_tickers:
+            if t in close.columns:
+                cat_val += close[t].ffill().fillna(0) * qty_map.get(t, 0)
+        cat_val_clean = cat_val[cat_val > 0].dropna()
+        if len(cat_val_clean) > 1:
+            cat_pct = ((cat_val_clean / cat_val_clean.iloc[0]) - 1) * 100
+            cat_base100 = cat_pct + 100  # shift to base-100 for log scale
+            cat_dates = [d.strftime("%Y-%m-%d") for d in cat_pct.index]
+            fig5_data.append(dict(
+                x=cat_dates, y=cat_base100.round(2).tolist(),
+                text=cat_pct.round(2).tolist(),
+                type="scatter", mode="lines",
+                name=cat_name, line=dict(color=cat_colors[ci % len(cat_colors)], width=2),
+                hovertemplate=f"<b>{cat_name}</b><br>" + "%{x}<br>Return: %{text:.2f}%<extra></extra>",
+            ))
+    # Add SPY for reference
+    if spy_col is not None and len(spy_col.dropna()) > 1:
+        s0 = spy_col.dropna().iloc[0]
+        if s0 > 0:
+            spy_pct_cmp = ((spy_col / s0) - 1) * 100
+            spy_base100 = spy_pct_cmp + 100
+            fig5_data.append(dict(
+                x=dates_str, y=spy_base100.round(2).tolist(),
+                text=spy_pct_cmp.round(2).tolist(),
+                type="scatter", mode="lines",
+                name="SPY", line=dict(color="gold", width=1.5, dash="dash"),
+                hovertemplate="<b>SPY</b><br>%{x}<br>Return: %{text:.2f}%<extra></extra>",
+            ))
+    # Build tick values/labels: base-100 scale, show as return %
+    fig5_ticks = [50, 60, 70, 80, 90, 100, 110, 120, 130, 150, 175, 200, 250, 300, 400, 500]
+    fig5_ticktext = [f"{v-100}%" for v in fig5_ticks]
+    fig5_layout = dict(title="Category Comparison — % Return", template="plotly_dark",
+                       yaxis=dict(title="Return (%)", type="log",
+                                  tickvals=fig5_ticks, ticktext=fig5_ticktext),
+                       margin=dict(t=100, b=40, l=60, r=20),
+                       paper_bgcolor="#1a1f2e", plot_bgcolor="rgba(255,255,255,0.03)",
+                       legend=dict(x=0.5, y=1.08, xanchor="center",
+                                   orientation="h", font=dict(size=11)))
+
+    # ── Summary ──────────────────────────────────────────────────────────────
+    cur_val = float(pv.iloc[-1]) if len(pv) > 0 else 0
+    start_val = float(pv_clean.iloc[0]) if len(pv_clean) > 0 else 0
+    ret_dollar = cur_val - start_val
+    ret_pct = float(pv_pct.iloc[-1]) if len(pv_pct) > 0 else 0
+    best = max(ticker_returns.items(), key=lambda x: x[1]) if ticker_returns else ("—", 0)
+    worst = min(ticker_returns.items(), key=lambda x: x[1]) if ticker_returns else ("—", 0)
+
+    return jsonify(
+        portfolio_value=dict(data=fig1_data, layout=fig1_layout),
+        portfolio_perf=dict(data=fig2_data, layout=fig2_layout),
+        bar_by_ticker=dict(data=fig3a_data, layout=fig3a_layout),
+        bar_by_category=dict(data=fig3b_data, layout=fig3b_layout),
+        heatmap=dict(data=fig4_data, layout=fig4_layout),
+        category_comparison=dict(data=fig5_data, layout=fig5_layout),
+        summary=dict(
+            total_value=round(cur_val, 2),
+            total_return_dollar=round(ret_dollar, 2),
+            total_return_pct=round(ret_pct, 2),
+            best_ticker=best[0], best_return=best[1],
+            worst_ticker=worst[0], worst_return=worst[1],
+        ),
+    )
+
+
+# ── Categories management routes ──────────────────────────────────────────────
+
+@app.route("/categories")
+def categories_page():
+    """Categories management page — data loaded via AJAX."""
+    return render_template("categories.html")
+
+
+@app.route("/categories/data")
+def categories_data():
+    pid = get_profile_id()
+    conn = get_connection()
+    ensure_tables_exist(conn)
+
+    # ── Auto-seed categories from classification_type (Owner profile only) ────
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM dbo.categories WHERE profile_id=?", (pid,))
+    cat_count = cursor.fetchone()[0]
+    has_assignments = 0
+    if cat_count > 0:
+        cursor.execute("SELECT COUNT(*) FROM dbo.ticker_categories WHERE profile_id=?", (pid,))
+        has_assignments = cursor.fetchone()[0]
+    if pid == 1 and (cat_count == 0 or (cat_count > 0 and has_assignments == 0)):
+        # Clear any stale empty categories first
+        cursor.execute("DELETE FROM dbo.ticker_categories WHERE profile_id=?", (pid,))
+        cursor.execute("DELETE FROM dbo.categories WHERE profile_id=?", (pid,))
+        conn.commit()
+        # Get distinct classification types using cursor (not pd.read_sql)
+        cursor.execute(
+            "SELECT DISTINCT classification_type FROM dbo.all_account_info "
+            "WHERE profile_id=? AND classification_type IS NOT NULL AND classification_type <> ''",
+            (pid,)
+        )
+        codes = [row[0].strip() for row in cursor.fetchall()]
+        for idx, code in enumerate(codes):
+            cat_name = _CLASSIFICATION_NAMES.get(code, code)
+            cursor.execute(
+                "INSERT INTO dbo.categories (name, profile_id, sort_order) "
+                "OUTPUT INSERTED.id VALUES (?,?,?)",
+                (cat_name, pid, idx)
+            )
+            cat_id = int(cursor.fetchone()[0])
+            # Assign all tickers with this classification_type
+            cursor.execute(
+                "SELECT ticker FROM dbo.all_account_info "
+                "WHERE profile_id=? AND classification_type=?",
+                (pid, code)
+            )
+            tickers = [r[0] for r in cursor.fetchall()]
+            for t in tickers:
+                cursor.execute(
+                    "INSERT INTO dbo.ticker_categories (ticker, category_id, profile_id) VALUES (?,?,?)",
+                    (t, cat_id, pid)
+                )
+        conn.commit()
+
+    cats = pd.read_sql(
+        "SELECT id, name, target_pct, sort_order FROM dbo.categories "
+        "WHERE profile_id = ? ORDER BY sort_order, id", conn, params=[pid]
+    )
+    assigned = pd.read_sql(
+        "SELECT tc.ticker, tc.category_id, a.description, a.current_value "
+        "FROM dbo.ticker_categories tc "
+        "LEFT JOIN dbo.all_account_info a ON a.ticker = tc.ticker AND a.profile_id = tc.profile_id "
+        "WHERE tc.profile_id = ?", conn, params=[pid]
+    )
+    all_tickers = pd.read_sql(
+        "SELECT ticker, description, current_value FROM dbo.all_account_info "
+        "WHERE profile_id = ?", conn, params=[pid]
+    )
+    conn.close()
+
+    assigned_set = set(assigned["ticker"].tolist()) if not assigned.empty else set()
+    unallocated = all_tickers[~all_tickers["ticker"].isin(assigned_set)]
+
+    def _clean(df):
+        recs = df.to_dict("records")
+        for r in recs:
+            for k, v in r.items():
+                if isinstance(v, float) and (v != v):
+                    r[k] = None
+        return recs
+
+    cat_list = []
+    for _, c in cats.iterrows():
+        cid = int(c["id"])
+        ct = assigned[assigned["category_id"] == cid][["ticker", "description", "current_value"]]
+        cat_list.append({
+            "id": cid,
+            "name": c["name"],
+            "target_pct": c["target_pct"] if c["target_pct"] == c["target_pct"] else None,
+            "sort_order": int(c["sort_order"]),
+            "tickers": _clean(ct),
+        })
+
+    total_val = float(all_tickers["current_value"].fillna(0).sum()) if not all_tickers.empty else 0
+
+
+    return jsonify(categories=cat_list, unallocated=_clean(unallocated), total_value=total_val)
+
+
+@app.route("/categories/create", methods=["POST"])
+def categories_create():
+    pid = get_profile_id()
+    data = request.get_json(force=True)
+    name = str(data.get("name", "")).strip()
+    target_pct = data.get("target_pct")
+    if not name:
+        return jsonify(ok=False, error="Name is required"), 400
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT ISNULL(MAX(sort_order),0)+1 FROM dbo.categories WHERE profile_id=?", (pid,)
+    )
+    next_sort = cursor.fetchone()[0]
+    try:
+        cursor.execute(
+            "INSERT INTO dbo.categories (name, target_pct, profile_id, sort_order) "
+            "OUTPUT INSERTED.id VALUES (?,?,?,?)",
+            (name, target_pct, pid, next_sort)
+        )
+        new_id = cursor.fetchone()[0]
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify(ok=False, error=str(e)), 400
+    conn.close()
+    return jsonify(ok=True, id=int(new_id))
+
+
+@app.route("/categories/<int:cat_id>/update", methods=["POST"])
+def categories_update(cat_id):
+    pid = get_profile_id()
+    data = request.get_json(force=True)
+    fields, values = [], []
+    if "name" in data:
+        fields.append("name = ?"); values.append(str(data["name"]).strip())
+    if "target_pct" in data:
+        fields.append("target_pct = ?"); values.append(data["target_pct"])
+    if "sort_order" in data:
+        fields.append("sort_order = ?"); values.append(int(data["sort_order"]))
+    if not fields:
+        return jsonify(ok=False, error="Nothing to update"), 400
+    values += [cat_id, pid]
+    conn = get_connection()
+    conn.cursor().execute(
+        f"UPDATE dbo.categories SET {', '.join(fields)} WHERE id=? AND profile_id=?", values
+    )
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/categories/<int:cat_id>/delete", methods=["POST"])
+def categories_delete(cat_id):
+    pid = get_profile_id()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM dbo.ticker_categories WHERE category_id=? AND profile_id=?", (cat_id, pid)
+    )
+    cursor.execute(
+        "DELETE FROM dbo.categories WHERE id=? AND profile_id=?", (cat_id, pid)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/categories/assign", methods=["POST"])
+def categories_assign():
+    pid = get_profile_id()
+    data = request.get_json(force=True)
+    category_id = data.get("category_id")
+    tickers = data.get("tickers", [])
+    if data.get("ticker"):
+        tickers = [data["ticker"]]
+    if not category_id or not tickers:
+        return jsonify(ok=False, error="category_id and ticker(s) required"), 400
+    conn = get_connection()
+    cursor = conn.cursor()
+    for t in tickers:
+        t = str(t).strip().upper()
+        cursor.execute(
+            "DELETE FROM dbo.ticker_categories WHERE ticker=? AND profile_id=?", (t, pid)
+        )
+        cursor.execute(
+            "INSERT INTO dbo.ticker_categories (ticker, category_id, profile_id) VALUES (?,?,?)",
+            (t, int(category_id), pid)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/categories/unassign", methods=["POST"])
+def categories_unassign():
+    pid = get_profile_id()
+    data = request.get_json(force=True)
+    tickers = data.get("tickers", [])
+    if data.get("ticker"):
+        tickers = [data["ticker"]]
+    conn = get_connection()
+    cursor = conn.cursor()
+    for t in tickers:
+        cursor.execute(
+            "DELETE FROM dbo.ticker_categories WHERE ticker=? AND profile_id=?",
+            (str(t).strip().upper(), pid)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/categories/reorder", methods=["POST"])
+def categories_reorder():
+    pid = get_profile_id()
+    data = request.get_json(force=True)
+    order = data.get("order", [])
+    conn = get_connection()
+    cursor = conn.cursor()
+    for i, cat_id in enumerate(order):
+        cursor.execute(
+            "UPDATE dbo.categories SET sort_order=? WHERE id=? AND profile_id=?",
+            (i, int(cat_id), pid)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+# ── Portfolio Summary ─────────────────────────────────────────────────────────
+
+@app.route("/portfolio_summary")
+def portfolio_summary():
+    """Portfolio summary: per-ticker dividend/price metrics + AJAX grades."""
+    conn = get_connection()
+    ensure_tables_exist(conn)
+    pid = get_profile_id()
+    try:
+        df = pd.read_sql("""
+            SELECT ticker, description, quantity, price_paid, current_price,
+                   percent_change, annual_yield_on_cost, current_annual_yield,
+                   ytd_divs, approx_monthly_income, paid_for_itself,
+                   purchase_value, current_value, estim_payment_per_year,
+                   percent_of_account, current_month_income, purchase_date,
+                   total_divs_received, gain_or_loss
+            FROM dbo.all_account_info
+            WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND ISNULL(quantity, 0) > 0 AND profile_id = ?
+            ORDER BY ticker
+        """, conn, params=[pid])
+    except Exception:
+        df = pd.DataFrame()
+    conn.close()
+
+    if not df.empty:
+        for col in ['price_paid', 'current_price', 'percent_change',
+                     'annual_yield_on_cost', 'current_annual_yield',
+                     'ytd_divs', 'approx_monthly_income', 'paid_for_itself',
+                     'purchase_value', 'current_value', 'estim_payment_per_year',
+                     'quantity', 'percent_of_account', 'current_month_income',
+                     'total_divs_received', 'gain_or_loss']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        # Compute Price Return % and Total Return % (cumulative, since purchase)
+        pv = df['purchase_value'].fillna(0)
+        gl = df['gain_or_loss'].fillna(0)
+        td = df['total_divs_received'].fillna(0)
+        df['price_return_pct'] = (gl / pv.replace(0, float('nan')) * 100).fillna(0)
+        df['total_return_pct'] = ((gl + td) / pv.replace(0, float('nan')) * 100).fillna(0)
+
+    totals = {}
+    if not df.empty:
+        totals['ytd_divs'] = float(df['ytd_divs'].sum(skipna=True))
+        totals['current_month_income'] = float(df['current_month_income'].sum(skipna=True)) if 'current_month_income' in df.columns else 0.0
+        totals['approx_monthly_income'] = float(df['approx_monthly_income'].sum(skipna=True))
+        totals['estim_payment_per_year'] = float(df['estim_payment_per_year'].sum(skipna=True))
+        totals['purchase_value'] = float(df['purchase_value'].sum(skipna=True))
+        totals['current_value'] = float(df['current_value'].sum(skipna=True))
+        _total_gl = float(df['gain_or_loss'].sum(skipna=True))
+        _total_td = float(df['total_divs_received'].sum(skipna=True))
+        _total_pv = totals['purchase_value']
+        totals['price_return_pct'] = round(_total_gl / _total_pv * 100, 2) if _total_pv else 0
+        totals['total_return_pct'] = round((_total_gl + _total_td) / _total_pv * 100, 2) if _total_pv else 0
+        mask = df['purchase_value'].notna() & (df['purchase_value'] > 0) & df['annual_yield_on_cost'].notna()
+        if mask.any():
+            totals['avg_yield_on_cost'] = float(
+                (df.loc[mask, 'annual_yield_on_cost'] * df.loc[mask, 'purchase_value']).sum()
+                / df.loc[mask, 'purchase_value'].sum()
+            )
+        else:
+            totals['avg_yield_on_cost'] = 0.0
+        _total_annual = totals['estim_payment_per_year']
+        _total_cv = totals['current_value']
+        totals['current_yield'] = round(_total_annual / _total_cv * 100, 2) if _total_cv else 0
+
+    from datetime import date as _date
+    _month_name = _date.today().strftime("%B")
+    return render_template("portfolio_summary.html", data=df, totals=totals, current_month=_month_name)
+
+
+@app.route("/portfolio_summary/data")
+def portfolio_summary_data():
+    """AJAX: compute per-ticker grades and portfolio-level grade via yfinance."""
+    import math, warnings
+    import numpy as np
+    import yfinance as yf
+    warnings.filterwarnings("ignore")
+
+    pid = get_profile_id()
+    conn = get_connection()
+    try:
+        df = pd.read_sql("""
+            SELECT ticker, current_value
+            FROM dbo.all_account_info
+            WHERE purchase_value IS NOT NULL AND purchase_value > 0
+              AND ISNULL(quantity, 0) > 0 AND profile_id = ?
+        """, conn, params=[pid])
+    except Exception:
+        df = pd.DataFrame()
+    conn.close()
+
+    if df.empty:
+        return jsonify(error="No data"), 400
+
+    tickers = df['ticker'].tolist()
+    all_dl = list(set(tickers + ["SPY"]))
+
+    try:
+        raw = yf.download(" ".join(all_dl), period="1y", auto_adjust=True, progress=False)
+        if raw.empty:
+            return jsonify(error="No price data from yfinance"), 500
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        close = raw["Close"].dropna(how="all")
+    else:
+        close = raw[["Close"]].dropna(how="all")
+        close.columns = [all_dl[0]]
+
+    bench_close = close["SPY"] if "SPY" in close.columns else None
+    bench_ret = bench_close.pct_change().dropna() if bench_close is not None else None
+
+    ticker_grades = {}
+    available = []
+    for t in tickers:
+        if t not in close.columns:
+            ticker_grades[t] = {"grade": "N/A", "score": None}
+            continue
+        tc = close[t].dropna()
+        if len(tc) < 30:
+            ticker_grades[t] = {"grade": "N/A", "score": None}
+            continue
+        tr = tc.pct_change().dropna()
+        score, *_ = _ticker_score(tc, tr, bench_ret)
+        ticker_grades[t] = {"grade": _letter_grade(score), "score": score}
+        available.append(t)
+
+    portfolio_grade = {}
+    if len(available) >= 2:
+        returns_df = close[available].pct_change().fillna(0)
+        val_map = dict(zip(df['ticker'], pd.to_numeric(df['current_value'], errors='coerce').fillna(0)))
+        weights_arr = np.array([val_map.get(t, 0.0) for t in available])
+        pm = _grade_portfolio(returns_df, weights_arr, bench_ret)
+        portfolio_grade = pm.get("grade", {})
+        portfolio_grade["sharpe"] = pm.get("sharpe")
+        portfolio_grade["sortino"] = pm.get("sortino")
+        portfolio_grade["calmar"] = pm.get("calmar")
+        portfolio_grade["omega"] = pm.get("omega")
+
+    return jsonify(ticker_grades=ticker_grades, portfolio_grade=portfolio_grade)
 
 
 if __name__ == "__main__":

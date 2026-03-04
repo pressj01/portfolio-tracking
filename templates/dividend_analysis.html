@@ -93,7 +93,7 @@
             <tr>
                 <th class="sortable" data-col="0">Ticker <span class="sort-icon"></span></th>
                 <th class="sortable" data-col="1">Description <span class="sort-icon"></span></th>
-                <th class="sortable" data-col="2">Type <span class="sort-icon"></span></th>
+                <th class="sortable" data-col="2">Category <span class="sort-icon"></span></th>
                 <th class="sortable" data-col="3">YTD Divs <span class="sort-icon"></span></th>
                 <th class="sortable" data-col="4">Total Divs Received <span class="sort-icon"></span></th>
                 <th class="sortable" data-col="5">Paid For Itself <span class="sort-icon"></span></th>
@@ -116,10 +116,10 @@
             {% set yoc_val        = row.annual_yield_on_cost  if row.annual_yield_on_cost  is not none and row.annual_yield_on_cost  == row.annual_yield_on_cost  else 0 %}
             {% set cyield_val     = row.current_annual_yield  if row.current_annual_yield  is not none and row.current_annual_yield  == row.current_annual_yield  else 0 %}
             {% set gl_val         = row.gain_or_loss          if row.gain_or_loss          is not none and row.gain_or_loss          == row.gain_or_loss          else 0 %}
-            <tr class="{{ 'paid-off' if paid_pct >= 100 else '' }}" data-type="{{ row.classification_type if row.classification_type else '' }}">
+            <tr class="{{ 'paid-off' if paid_pct >= 100 else '' }}" data-type="{{ row.category_name if row.category_name else '' }}">
                 <td data-value="{{ row.ticker }}"><strong>{{ row.ticker }}</strong></td>
                 <td data-value="{{ row.description if row.description else '' }}">{{ row.description if row.description else '' }}</td>
-                <td data-value="{{ row.classification_type if row.classification_type else '' }}">{{ row.classification_type if row.classification_type else '' }}</td>
+                <td data-value="{{ row.category_name if row.category_name else '' }}">{{ row.category_name if row.category_name else '' }}</td>
                 <td class="num" data-value="{{ ytd_val }}">${{ "%.2f"|format(ytd_val) }}</td>
                 <td class="num" data-value="{{ total_val }}"><strong>${{ "%.2f"|format(total_val) }}</strong></td>
                 <td class="num {{ 'highlight-green' if paid_pct >= 100 else ('highlight-yellow' if paid_pct >= 50 else '') }}" data-value="{{ paid_pct }}">

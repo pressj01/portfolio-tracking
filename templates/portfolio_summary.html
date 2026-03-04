@@ -1,0 +1,441 @@
+{% extends "base.html" %}
+{% block content %}
+<style>.container { max-width: 98vw; }</style>
+<h1>Portfolio Summary</h1>
+
+<!-- ── Summary Strip ─────────────────────────────────────── -->
+<div class="ps-summary" id="ps-summary">
+    <div class="ps-card" id="card-port-grade">
+        <div class="ps-card-label">Portfolio Grade</div>
+        <div class="ps-card-value ps-grade-placeholder" id="val-port-grade">&hellip;</div>
+        <div class="ps-card-sub" id="val-port-score"></div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Sharpe Ratio</div>
+        <div class="ps-card-value ps-grade-placeholder" id="val-sharpe">&hellip;</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Sortino Ratio</div>
+        <div class="ps-card-value ps-grade-placeholder" id="val-sortino">&hellip;</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Calmar Ratio</div>
+        <div class="ps-card-value ps-grade-placeholder" id="val-calmar">&hellip;</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Omega Ratio</div>
+        <div class="ps-card-value ps-grade-placeholder" id="val-omega">&hellip;</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">YTD Dividends</div>
+        <div class="ps-card-value">${{ "{:,.2f}".format(totals.get('ytd_divs', 0)) }}</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">{{ current_month }} Income</div>
+        <div class="ps-card-value">${{ "{:,.2f}".format(totals.get('current_month_income', 0)) }}</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Est. Monthly Income</div>
+        <div class="ps-card-value">${{ "{:,.2f}".format(totals.get('approx_monthly_income', 0)) }}</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Est. Annual Income</div>
+        <div class="ps-card-value">${{ "{:,.2f}".format(totals.get('estim_payment_per_year', 0)) }}</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Portfolio Value</div>
+        <div class="ps-card-value">${{ "{:,.0f}".format(totals.get('current_value', 0)) }}</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Avg Yield on Cost</div>
+        <div class="ps-card-value">{{ "{:.2f}".format(totals.get('avg_yield_on_cost', 0) * 100) }}%</div>
+    </div>
+    <div class="ps-card">
+        <div class="ps-card-label">Current Yield</div>
+        <div class="ps-card-value">{{ "{:.2f}".format(totals.get('current_yield', 0)) }}%</div>
+    </div>
+    {% set pr = totals.get('price_return_pct', 0) %}
+    <div class="ps-card">
+        <div class="ps-card-label">Price Return</div>
+        <div class="ps-card-value {{ 'ps-pos' if pr >= 0 else 'ps-neg' }}">{{ "{:+.2f}".format(pr) }}%</div>
+    </div>
+    {% set tr = totals.get('total_return_pct', 0) %}
+    <div class="ps-card">
+        <div class="ps-card-label">Total Return</div>
+        <div class="ps-card-value {{ 'ps-pos' if tr >= 0 else 'ps-neg' }}">{{ "{:+.2f}".format(tr) }}%</div>
+    </div>
+</div>
+
+<details class="ps-ratio-guide">
+<summary>Grade Thresholds Guide</summary>
+<div class="ps-guide-body">
+<table class="ps-guide-tbl">
+    <thead>
+        <tr><th>Ratio</th><th>What It Measures</th><th>A (&ge;)</th><th>B (&ge;)</th><th>C (&ge;)</th><th>D (&ge;)</th><th>F (&lt;)</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>Sharpe</td><td>Return per unit of risk</td><td>1.50</td><td>1.00</td><td>0.50</td><td>0.00</td><td>0.00</td></tr>
+        <tr><td>Sortino</td><td>Return per unit of downside risk</td><td>2.00</td><td>1.50</td><td>1.00</td><td>0.50</td><td>0.50</td></tr>
+        <tr><td>Calmar</td><td>Return vs max drawdown</td><td>1.50</td><td>1.00</td><td>0.50</td><td>0.20</td><td>0.20</td></tr>
+        <tr><td>Omega</td><td>Gains vs losses ratio</td><td>2.00</td><td>1.50</td><td>1.20</td><td>1.00</td><td>1.00</td></tr>
+        <tr><td>Max Drawdown</td><td>Largest peak-to-trough drop</td><td>&le;10%</td><td>&le;20%</td><td>&le;30%</td><td>&le;40%</td><td>&gt;40%</td></tr>
+        <tr><td>Down Capture</td><td>Loss when benchmark falls</td><td>&le;80%</td><td>&le;90%</td><td>&le;100%</td><td>&le;120%</td><td>&gt;120%</td></tr>
+    </tbody>
+</table>
+<p class="ps-guide-note">
+    <strong>Weights:</strong> Sharpe 30% &middot; Sortino 20% &middot; Calmar 15% &middot; Omega 15% &middot; Max Drawdown 15% &middot; Down Capture 5%<br>
+    Portfolio grade also includes Diversification (10%) and Concentration (10%), with slightly adjusted weights.
+</p>
+</div>
+</details>
+
+<!-- ── Grade loading indicator ───────────────────────────── -->
+<div class="ps-grade-status" id="ps-grade-status">
+    <span class="ps-spinner" id="ps-spinner"></span>
+    <span id="ps-status-text">Loading risk grades&hellip;</span>
+</div>
+
+{% if data is not none and data|length > 0 %}
+<div class="table-wrapper" style="max-height:78vh; overflow:auto;">
+<table id="ps-table" class="ps-tbl">
+    <thead>
+        <tr>
+            <th class="ps-sort" data-col="0">Ticker</th>
+            <th class="ps-sort" data-col="1">Description</th>
+            <th class="ps-sort" data-col="2">Purchase Date</th>
+            <th class="ps-sort" data-col="3">Qty</th>
+            <th class="ps-sort" data-col="4">Price Paid</th>
+            <th class="ps-sort" data-col="5">Current Price</th>
+            <th class="ps-sort" data-col="6">% of Acct</th>
+            <th class="ps-sort" data-col="7">Gain/Loss %</th>
+            <th class="ps-sort" data-col="8">Price Return %</th>
+            <th class="ps-sort" data-col="9">Total Return %</th>
+            <th class="ps-sort" data-col="10">Current Yield</th>
+            <th class="ps-sort" data-col="11">Yield on Cost</th>
+            <th class="ps-sort" data-col="12">YTD Div</th>
+            <th class="ps-sort" data-col="13">{{ current_month }} Div</th>
+            <th class="ps-sort" data-col="14">Mo. Div (Est)</th>
+            <th class="ps-sort" data-col="15">% Paid for Itself</th>
+            <th class="ps-sort" data-col="16" id="th-grade">Grade</th>
+        </tr>
+    </thead>
+    <tbody id="ps-tbody">
+        {% for _, row in data.iterrows() %}
+        {% set qty = row.quantity if row.quantity == row.quantity else 0 %}
+        {% set pp  = row.price_paid if row.price_paid == row.price_paid else 0 %}
+        {% set cp  = row.current_price if row.current_price == row.current_price else 0 %}
+        {% set poa = row.percent_of_account if row.percent_of_account == row.percent_of_account else 0 %}
+        {% set pct = row.percent_change if row.percent_change == row.percent_change else 0 %}
+        {% set yoc = row.annual_yield_on_cost if row.annual_yield_on_cost == row.annual_yield_on_cost else 0 %}
+        {% set cy  = row.current_annual_yield if row.current_annual_yield == row.current_annual_yield else 0 %}
+        {% set ytd = row.ytd_divs if row.ytd_divs == row.ytd_divs else 0 %}
+        {% set cmi = row.current_month_income if row.current_month_income == row.current_month_income else 0 %}
+        {% set mo  = row.approx_monthly_income if row.approx_monthly_income == row.approx_monthly_income else 0 %}
+        {% set pfi = row.paid_for_itself if row.paid_for_itself == row.paid_for_itself else 0 %}
+        {% set prr = row.price_return_pct if row.price_return_pct == row.price_return_pct else 0 %}
+        {% set trr = row.total_return_pct if row.total_return_pct == row.total_return_pct else 0 %}
+        <tr data-ticker="{{ row.ticker }}">
+            <td data-val="{{ row.ticker }}"><strong class="tr-link" data-ticker="{{ row.ticker }}">{{ row.ticker }}</strong></td>
+            <td data-val="{{ row.description or '' }}" class="ps-desc">{{ row.description or '' }}</td>
+            {% set pdt = row.purchase_date if row.purchase_date is not none and row.purchase_date == row.purchase_date else none %}
+            <td data-val="{{ pdt.strftime('%Y-%m-%d') if pdt else '' }}" class="ps-date">{% if pdt %}{{ pdt.month }}/{{ pdt.day }}/{{ pdt.year }}{% endif %}</td>
+            <td data-val="{{ qty }}" class="ps-num">{{ "{:.3f}".format(qty) }}</td>
+            <td data-val="{{ pp }}" class="ps-num">${{ "{:,.2f}".format(pp) }}</td>
+            <td data-val="{{ cp }}" class="ps-num">${{ "{:,.2f}".format(cp) }}</td>
+            <td data-val="{{ poa }}" class="ps-num">{{ "{:.2f}".format(poa * 100) }}%</td>
+            <td data-val="{{ pct }}" class="ps-num {{ 'ps-pos' if pct >= 0 else 'ps-neg' }}">{{ "{:+.2f}".format(pct) }}%</td>
+            <td data-val="{{ prr }}" class="ps-num {{ 'ps-pos' if prr >= 0 else 'ps-neg' }}">{{ "{:+.2f}".format(prr) }}%</td>
+            <td data-val="{{ trr }}" class="ps-num {{ 'ps-pos' if trr >= 0 else 'ps-neg' }}">{{ "{:+.2f}".format(trr) }}%</td>
+            <td data-val="{{ cy }}" class="ps-num">{{ "{:.2f}".format(cy * 100) }}%</td>
+            <td data-val="{{ yoc }}" class="ps-num">{{ "{:.2f}".format(yoc * 100) }}%</td>
+            <td data-val="{{ ytd }}" class="ps-num">${{ "{:,.2f}".format(ytd) }}</td>
+            <td data-val="{{ cmi }}" class="ps-num">${{ "{:,.2f}".format(cmi) }}</td>
+            <td data-val="{{ mo }}" class="ps-num">${{ "{:,.2f}".format(mo) }}</td>
+            <td data-val="{{ pfi * 100 }}" class="ps-num {{ 'ps-pfi-full' if pfi >= 1.0 else ('ps-pfi-half' if pfi >= 0.5 else '') }}">{{ "{:.1f}".format(pfi * 100) }}%</td>
+            <td class="ps-grade-cell" data-val="0" data-ticker="{{ row.ticker }}">
+                <span class="ps-badge ps-badge-loading">&hellip;</span>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr class="ps-foot">
+            <td colspan="2"><strong>Totals</strong></td>
+            <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+            <td class="ps-num"><strong>${{ "{:,.2f}".format(totals.get('ytd_divs', 0)) }}</strong></td>
+            <td class="ps-num"><strong>${{ "{:,.2f}".format(totals.get('current_month_income', 0)) }}</strong></td>
+            <td class="ps-num"><strong>${{ "{:,.2f}".format(totals.get('approx_monthly_income', 0)) }}</strong></td>
+            <td></td><td></td>
+        </tr>
+    </tfoot>
+</table>
+</div>
+
+<!-- Ticker Return Modal -->
+<div class="tr-overlay" id="tr-modal">
+    <div class="tr-modal">
+        <div class="tr-header">
+            <h3 id="tr-title">Loading&hellip;</h3>
+            <button class="tr-close" onclick="closeTrModal()">&times;</button>
+        </div>
+        <div class="tr-sub" id="tr-sub"></div>
+        <div id="tr-spinner" class="tr-spin-wrap">
+            <div class="tr-spin-icon"></div><span>Loading chart data&hellip;</span>
+        </div>
+        <div id="tr-chart" style="width:100%;height:400px;"></div>
+        <div id="tr-error" style="display:none;color:#ff6b6b;text-align:center;padding:2rem;"></div>
+    </div>
+</div>
+
+{% else %}
+<p style="color:#8899aa;">No portfolio data. Import data from Excel first.</p>
+{% endif %}
+
+<style>
+/* ── Ratio guide ── */
+.ps-ratio-guide { margin-bottom:1rem; }
+.ps-ratio-guide summary {
+    cursor:pointer; color:#7ecfff; font-size:0.85rem;
+    padding:4px 0; user-select:none; list-style:none;
+}
+.ps-ratio-guide summary::before { content:'+ '; font-weight:bold; }
+.ps-ratio-guide[open] summary::before { content:'- '; }
+.ps-ratio-guide summary:hover { text-decoration:underline; }
+.ps-guide-body {
+    background:#1a2233; border:1px solid #334; border-radius:8px;
+    padding:1rem 1.2rem; margin-top:0.5rem;
+}
+.ps-guide-tbl { width:100%; border-collapse:collapse; font-size:0.82rem; }
+.ps-guide-tbl th, .ps-guide-tbl td { padding:5px 10px; border-bottom:1px solid #223; text-align:center; }
+.ps-guide-tbl th { color:#8899aa; font-weight:600; text-transform:uppercase; font-size:0.75rem; }
+.ps-guide-tbl td:first-child, .ps-guide-tbl th:first-child { text-align:left; font-weight:bold; color:#e0e8f5; }
+.ps-guide-tbl td:nth-child(2), .ps-guide-tbl th:nth-child(2) { text-align:left; color:#8899aa; }
+.ps-guide-note { font-size:0.78rem; color:#8899aa; margin-top:0.7rem; line-height:1.5; }
+
+/* ── Summary cards ── */
+.ps-summary { display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+.ps-card {
+    background:#1e2a3a; border:1px solid #334; border-radius:8px;
+    padding:1rem 1.5rem; min-width:170px; text-align:center;
+}
+.ps-card-label { font-size:0.78rem; color:#8899aa; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.3rem; }
+.ps-card-value { font-size:1.4rem; font-weight:bold; color:#7ecfff; }
+.ps-card-sub { font-size:0.78rem; color:#8899aa; margin-top:2px; }
+.ps-grade-placeholder { color:#556677; }
+
+/* ── Grade status bar ── */
+.ps-grade-status { display:flex; align-items:center; gap:10px; margin-bottom:1rem; font-size:0.85rem; color:#8899aa; }
+.ps-spinner {
+    display:inline-block; width:16px; height:16px;
+    border:2px solid #334; border-top-color:#7ecfff;
+    border-radius:50%; animation:ps-spin 0.7s linear infinite;
+}
+.ps-spinner.done { display:none; }
+@keyframes ps-spin { to { transform:rotate(360deg); } }
+
+/* ── Table ── */
+.ps-tbl { width:100%; border-collapse:collapse; font-size:0.85rem; }
+.ps-tbl th, .ps-tbl td { padding:6px 10px; border-bottom:1px solid #223; white-space:nowrap; }
+.ps-tbl thead th { position:sticky; top:0; background:#1a1f2e; z-index:2; }
+.ps-num { text-align:right; }
+.ps-desc { max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+.ps-date { font-size:0.82rem; color:#8899aa; }
+.ps-pos { color:#4dff91; }
+.ps-neg { color:#ff6b6b; }
+.ps-pfi-full { color:#4dff91; font-weight:bold; }
+.ps-pfi-half { color:#ffd700; }
+.ps-foot td { border-top:2px solid #445; padding-top:8px; }
+
+/* ── Sortable headers ── */
+.ps-sort { cursor:pointer; user-select:none; }
+.ps-sort:hover { background:#2a3a4a; }
+.ps-sort::after { content:' \21C5'; font-size:0.7em; color:#556; }
+.ps-sort.asc::after { content:' \25B2'; color:#7ecfff; }
+.ps-sort.desc::after { content:' \25BC'; color:#7ecfff; }
+
+/* ── Grade badges ── */
+.ps-badge {
+    display:inline-block; padding:2px 8px; border-radius:4px;
+    font-weight:bold; font-size:0.85rem; min-width:36px; text-align:center;
+}
+.ps-badge-loading { background:#223; color:#556677; }
+.ps-badge-A { background:rgba(77,255,145,0.15); color:#4dff91; }
+.ps-badge-B { background:rgba(126,207,255,0.15); color:#7ecfff; }
+.ps-badge-C { background:rgba(255,215,0,0.15); color:#ffd700; }
+.ps-badge-D { background:rgba(255,165,0,0.18); color:#ffaa55; }
+.ps-badge-F { background:rgba(255,80,80,0.15); color:#ff6b6b; }
+.ps-badge-NA { background:#1a1f2e; color:#556677; font-size:0.75rem; }
+#val-port-grade { font-size:2rem; }
+
+/* ── Ticker Return Modal ── */
+.tr-link { cursor:pointer; color:#7ecfff; }
+.tr-link:hover { text-decoration:underline; }
+.tr-overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65);
+    z-index:1000; justify-content:center; align-items:center;
+}
+.tr-overlay.open { display:flex; }
+.tr-modal {
+    background:#0e1117; border:1px solid #2a2a4e; border-radius:12px;
+    padding:1.2rem 1.5rem 1.5rem; width:90vw; max-width:800px;
+}
+.tr-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem; }
+.tr-header h3 { color:#e0e8f5; margin:0; font-size:1.1rem; }
+.tr-close {
+    background:none; border:none; color:#8899aa; font-size:1.5rem;
+    cursor:pointer; line-height:1; padding:0 4px;
+}
+.tr-close:hover { color:#ff6b6b; }
+.tr-sub { font-size:0.8rem; color:#8899aa; margin-bottom:0.8rem; }
+.tr-spin-wrap {
+    display:flex; align-items:center; gap:10px;
+    justify-content:center; padding:3rem 0; color:#8899aa; font-size:0.85rem;
+}
+.tr-spin-icon {
+    width:18px; height:18px; border:2px solid #334;
+    border-top-color:#7ecfff; border-radius:50%;
+    animation:ps-spin 0.7s linear infinite;
+}
+</style>
+
+<script>
+(function() {
+    var table = document.getElementById('ps-table');
+    if (!table) return;
+    var tbody = document.getElementById('ps-tbody');
+    var headers = table.querySelectorAll('th.ps-sort');
+    var numCols = new Set([3,4,5,6,7,8,9,10,11,12,13,14,15,16]);
+    var lastCol = -1, asc = true;
+
+    headers.forEach(function(th) {
+        th.addEventListener('click', function() {
+            var col = parseInt(th.dataset.col, 10);
+            if (lastCol === col) { asc = !asc; }
+            else { asc = numCols.has(col) ? false : true; }
+            lastCol = col;
+            headers.forEach(function(h) { h.classList.remove('asc','desc'); });
+            th.classList.add(asc ? 'asc' : 'desc');
+            var rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort(function(a, b) {
+                var av = a.querySelectorAll('td')[col].getAttribute('data-val') || '';
+                var bv = b.querySelectorAll('td')[col].getAttribute('data-val') || '';
+                if (numCols.has(col)) {
+                    av = parseFloat(av) || 0; bv = parseFloat(bv) || 0;
+                    return asc ? av - bv : bv - av;
+                }
+                return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+            });
+            rows.forEach(function(r) { tbody.appendChild(r); });
+        });
+    });
+
+    function gradeClass(g) {
+        if (!g || g === 'N/A') return 'ps-badge-NA';
+        var c = g[0].toUpperCase();
+        return c === 'A' ? 'ps-badge-A' : c === 'B' ? 'ps-badge-B' :
+               c === 'C' ? 'ps-badge-C' : c === 'D' ? 'ps-badge-D' :
+               c === 'F' ? 'ps-badge-F' : 'ps-badge-NA';
+    }
+
+    fetch('/portfolio_summary/data')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            document.getElementById('ps-spinner').classList.add('done');
+            var st = document.getElementById('ps-status-text');
+
+            if (data.error) {
+                st.textContent = 'Grade data unavailable: ' + data.error;
+                return;
+            }
+            st.textContent = 'Grades loaded.';
+
+            var pg = (data.portfolio_grade || {});
+            var pgEl = document.getElementById('val-port-grade');
+            pgEl.textContent = pg.overall || 'N/A';
+            pgEl.className = 'ps-card-value ' + gradeClass(pg.overall);
+            var psEl = document.getElementById('val-port-score');
+            if (pg.score != null) psEl.textContent = 'Score: ' + pg.score.toFixed(1);
+
+            // Populate ratio cards
+            ['sharpe','sortino','calmar','omega'].forEach(function(k) {
+                var el = document.getElementById('val-' + k);
+                if (el) {
+                    var v = pg[k];
+                    el.textContent = (v != null) ? v.toFixed(2) : 'N/A';
+                    el.className = 'ps-card-value';
+                }
+            });
+
+            var tg = data.ticker_grades || {};
+            document.querySelectorAll('td.ps-grade-cell').forEach(function(td) {
+                var t = td.getAttribute('data-ticker');
+                var info = tg[t];
+                if (!info) return;
+                var grade = info.grade || 'N/A';
+                td.setAttribute('data-val', info.score != null ? info.score : -1);
+                var badge = td.querySelector('.ps-badge');
+                badge.textContent = grade;
+                badge.className = 'ps-badge ' + gradeClass(grade);
+            });
+        })
+        .catch(function(e) {
+            document.getElementById('ps-spinner').classList.add('done');
+            document.getElementById('ps-status-text').textContent = 'Grade data unavailable.';
+        });
+
+    // ── Ticker return popup ──────────────────────────────────
+    function closeTrModal() {
+        document.getElementById('tr-modal').classList.remove('open');
+        Plotly.purge(document.getElementById('tr-chart'));
+    }
+    window.closeTrModal = closeTrModal;
+
+    document.getElementById('tr-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeTrModal();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeTrModal();
+    });
+
+    document.querySelectorAll('.tr-link').forEach(function(el) {
+        el.addEventListener('click', function() {
+            var ticker = el.getAttribute('data-ticker');
+            var modal = document.getElementById('tr-modal');
+            var chart = document.getElementById('tr-chart');
+            var spinner = document.getElementById('tr-spinner');
+            var errDiv = document.getElementById('tr-error');
+
+            document.getElementById('tr-title').textContent = ticker;
+            document.getElementById('tr-sub').textContent = '';
+            spinner.style.display = 'flex';
+            chart.style.display = 'none';
+            errDiv.style.display = 'none';
+            Plotly.purge(chart);
+            modal.classList.add('open');
+
+            fetch('/ticker_return_chart/' + encodeURIComponent(ticker))
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    spinner.style.display = 'none';
+                    if (json.error) {
+                        errDiv.textContent = json.error;
+                        errDiv.style.display = 'block';
+                        return;
+                    }
+                    document.getElementById('tr-title').textContent =
+                        ticker + ' — ' + (json.description || '');
+                    document.getElementById('tr-sub').textContent =
+                        'Purchased ' + json.purchase_date + ' at $' + json.price_paid.toFixed(2);
+                    chart.style.display = 'block';
+                    Plotly.newPlot(chart, json.data, json.layout, {responsive: true});
+                })
+                .catch(function() {
+                    spinner.style.display = 'none';
+                    errDiv.textContent = 'Failed to load chart data.';
+                    errDiv.style.display = 'block';
+                });
+        });
+    });
+})();
+</script>
+{% endblock %}

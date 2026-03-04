@@ -1,20 +1,94 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Data Management</h1>
-<p>Populate normalized tables from the imported data in all_account_info.</p>
 
-<div class="actions manage-actions">
-    <form action="{{ url_for('populate', table='holdings') }}" method="post">
-        <button type="submit" class="btn">Populate Holdings</button>
-    </form>
-    <form action="{{ url_for('populate', table='dividends') }}" method="post">
-        <button type="submit" class="btn">Populate Dividends</button>
-    </form>
-    <form action="{{ url_for('populate', table='income_tracking') }}" method="post">
-        <button type="submit" class="btn">Populate Income Tracking</button>
-    </form>
-    <form action="{{ url_for('populate', table='pillar_weights') }}" method="post">
-        <button type="submit" class="btn">Populate Pillar Weights</button>
-    </form>
+<div class="dm-section">
+    <h2>Step 1: Import from Excel</h2>
+    <p class="dm-desc">Read the Excel spreadsheet and load all holdings into the main data table. This replaces all existing data for the current profile.</p>
+    {% if active_profile_id == 1 %}
+    <div class="dm-card">
+        <form action="{{ url_for('do_import') }}" method="post">
+            <button type="submit" class="btn dm-btn-primary">Import Data from Excel</button>
+        </form>
+        <div class="dm-detail">
+            <strong>Source:</strong> Dividend_Tracking_082025.xlsm &rarr; "All Accounts" sheet<br>
+            <strong>Target:</strong> <code>all_account_info</code> (deletes &amp; re-imports all rows for Owner profile)<br>
+            <strong>Also updates:</strong> <code>monthly_payouts</code> (from "[Month] Income" columns)
+        </div>
+    </div>
+    {% else %}
+    <div class="dm-card">
+        <form action="{{ url_for('portfolio_refresh') }}" method="post">
+            <button type="submit" class="btn" style="background:#a855f7;border-color:#a855f7">Refresh Data from yfinance</button>
+        </form>
+        <div class="dm-detail">
+            Re-fetches current prices and dividend data from Yahoo Finance for all holdings in this profile.<br>
+            <strong>Target:</strong> <code>all_account_info</code>
+        </div>
+    </div>
+    {% endif %}
 </div>
+
+<div class="dm-section">
+    <h2>Step 2: Populate Normalized Tables</h2>
+    <p class="dm-desc">After importing, populate these derived tables from <code>all_account_info</code>. Each button copies specific columns into a focused table used by different parts of the app.</p>
+
+    <div class="dm-grid">
+        <div class="dm-card">
+            <form action="{{ url_for('populate', table='holdings') }}" method="post">
+                <button type="submit" class="btn">Populate Holdings</button>
+            </form>
+            <div class="dm-detail">
+                <strong>Target:</strong> <code>holdings</code><br>
+                Ticker, description, classification, quantity, prices, purchase/current value, gain/loss. Used by portfolio builder and optimizer.
+            </div>
+        </div>
+
+        <div class="dm-card">
+            <form action="{{ url_for('populate', table='dividends') }}" method="post">
+                <button type="submit" class="btn">Populate Dividends</button>
+            </form>
+            <div class="dm-detail">
+                <strong>Target:</strong> <code>dividends</code><br>
+                Dividend frequency, reinvest flag, ex-div date, div per share, yields, YTD/total divs received. Used by dividend analysis and calendar.
+            </div>
+        </div>
+
+        <div class="dm-card">
+            <form action="{{ url_for('populate', table='income_tracking') }}" method="post">
+                <button type="submit" class="btn">Populate Income Tracking</button>
+            </form>
+            <div class="dm-detail">
+                <strong>Target:</strong> <code>income_tracking</code><br>
+                Append-only snapshots of each ticker's dividend income at import time. Skips duplicates (same ticker + date). Used by income charts.
+            </div>
+        </div>
+
+        <div class="dm-card">
+            <form action="{{ url_for('populate', table='pillar_weights') }}" method="post">
+                <button type="submit" class="btn">Populate Pillar Weights</button>
+            </form>
+            <div class="dm-detail">
+                <strong>Target:</strong> <code>pillar_weights</code><br>
+                Legacy pillar allocation columns (Anchor, Booster, Juicer, etc.). Often NULL for xlsm imports &mdash; categories page is the replacement.
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.dm-section { margin-bottom: 2rem; }
+.dm-section h2 { font-size: 1.1rem; color: #7ecfff; margin-bottom: 0.5rem; }
+.dm-desc { color: #8899aa; font-size: 0.9rem; margin-bottom: 1rem; }
+.dm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+.dm-card {
+    background: #1e2a3a; border: 1px solid #334; border-radius: 8px;
+    padding: 1rem 1.2rem;
+}
+.dm-card form { margin-bottom: 0.7rem; }
+.dm-btn-primary { background: #00c853 !important; border-color: #00c853 !important; font-size: 1rem; padding: 10px 24px; }
+.dm-detail { font-size: 0.8rem; color: #8899aa; line-height: 1.5; }
+.dm-detail code { color: #7ecfff; background: rgba(126,207,255,0.1); padding: 1px 5px; border-radius: 3px; font-size: 0.78rem; }
+.dm-detail strong { color: #aabbcc; }
+</style>
 {% endblock %}

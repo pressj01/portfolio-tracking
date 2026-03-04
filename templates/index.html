@@ -3,11 +3,7 @@
 <h1>Portfolio Dashboard</h1>
 
 <div class="actions">
-    {% if active_profile_id == 1 %}
-    <form action="{{ url_for('do_import') }}" method="post">
-        <button type="submit" class="btn">Import Data from Excel</button>
-    </form>
-    {% else %}
+    {% if active_profile_id != 1 %}
     <form action="{{ url_for('portfolio_refresh') }}" method="post">
         <button type="submit" class="btn" style="background:#a855f7;border-color:#a855f7">
             &#8635; Refresh Data
@@ -446,13 +442,118 @@
             {% for _, row in data.iterrows() %}
             <tr>
                 {% for col in data.columns %}
-                <td{% if loop.index0 < 2 %} class="col-frozen" data-freeze="{{ loop.index0 }}"{% endif %}>{{ row[col] }}</td>
+                <td{% if loop.index0 < 2 %} class="col-frozen" data-freeze="{{ loop.index0 }}"{% endif %}>{% if loop.index0 == 0 %}<span class="tr-link" data-ticker="{{ row[col] }}">{{ row[col] }}</span>{% else %}{{ row[col] }}{% endif %}</td>
                 {% endfor %}
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+<!-- Ticker Return Modal -->
+<div class="tr-overlay" id="tr-modal">
+    <div class="tr-modal">
+        <div class="tr-header">
+            <h3 id="tr-title">Loading&hellip;</h3>
+            <button class="tr-close" onclick="closeTrModal()">&times;</button>
+        </div>
+        <div class="tr-sub" id="tr-sub"></div>
+        <div id="tr-spinner" class="tr-spin-wrap">
+            <div class="tr-spin-icon"></div><span>Loading chart data&hellip;</span>
+        </div>
+        <div id="tr-chart" style="width:100%;height:400px;"></div>
+        <div id="tr-error" style="display:none;color:#ff6b6b;text-align:center;padding:2rem;"></div>
+    </div>
+</div>
+
+<style>
+.tr-link { cursor:pointer; color:#7ecfff; }
+.tr-link:hover { text-decoration:underline; }
+.tr-overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65);
+    z-index:1000; justify-content:center; align-items:center;
+}
+.tr-overlay.open { display:flex; }
+.tr-modal {
+    background:#0e1117; border:1px solid #2a2a4e; border-radius:12px;
+    padding:1.2rem 1.5rem 1.5rem; width:90vw; max-width:800px;
+}
+.tr-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem; }
+.tr-header h3 { color:#e0e8f5; margin:0; font-size:1.1rem; }
+.tr-close {
+    background:none; border:none; color:#8899aa; font-size:1.5rem;
+    cursor:pointer; line-height:1; padding:0 4px;
+}
+.tr-close:hover { color:#ff6b6b; }
+.tr-sub { font-size:0.8rem; color:#8899aa; margin-bottom:0.8rem; }
+.tr-spin-wrap {
+    display:flex; align-items:center; gap:10px;
+    justify-content:center; padding:3rem 0; color:#8899aa; font-size:0.85rem;
+}
+.tr-spin-icon {
+    width:18px; height:18px; border:2px solid #334;
+    border-top-color:#7ecfff; border-radius:50%;
+    animation:tr-spin 0.7s linear infinite;
+}
+@keyframes tr-spin { to { transform:rotate(360deg); } }
+</style>
+
+<script>
+(function() {
+    function closeTrModal() {
+        document.getElementById('tr-modal').classList.remove('open');
+        Plotly.purge(document.getElementById('tr-chart'));
+    }
+    window.closeTrModal = closeTrModal;
+
+    document.getElementById('tr-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeTrModal();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeTrModal();
+    });
+
+    document.querySelectorAll('.tr-link').forEach(function(el) {
+        el.addEventListener('click', function() {
+            var ticker = el.getAttribute('data-ticker');
+            var modal = document.getElementById('tr-modal');
+            var chart = document.getElementById('tr-chart');
+            var spinner = document.getElementById('tr-spinner');
+            var errDiv = document.getElementById('tr-error');
+
+            document.getElementById('tr-title').textContent = ticker;
+            document.getElementById('tr-sub').textContent = '';
+            spinner.style.display = 'flex';
+            chart.style.display = 'none';
+            errDiv.style.display = 'none';
+            Plotly.purge(chart);
+            modal.classList.add('open');
+
+            fetch('/ticker_return_chart/' + encodeURIComponent(ticker))
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    spinner.style.display = 'none';
+                    if (json.error) {
+                        errDiv.textContent = json.error;
+                        errDiv.style.display = 'block';
+                        return;
+                    }
+                    document.getElementById('tr-title').textContent =
+                        ticker + ' — ' + (json.description || '');
+                    document.getElementById('tr-sub').textContent =
+                        'Purchased ' + json.purchase_date + ' at $' + json.price_paid.toFixed(2);
+                    chart.style.display = 'block';
+                    Plotly.newPlot(chart, json.data, json.layout, {responsive: true});
+                })
+                .catch(function() {
+                    spinner.style.display = 'none';
+                    errDiv.textContent = 'Failed to load chart data.';
+                    errDiv.style.display = 'block';
+                });
+        });
+    });
+})();
+</script>
 
 <script>
 (function() {
@@ -549,6 +650,38 @@
     }
     setFrozenOffsets();
     window.addEventListener('resize', setFrozenOffsets);
+})();
+</script>
+<script>
+(function(){
+    var table = document.getElementById('data-table');
+    if (!table) return;
+    var ths = table.querySelectorAll('thead th');
+    var pfiIdx = -1, prIdx = -1, trIdx = -1;
+    for (var i = 0; i < ths.length; i++) {
+        var cn = (ths[i].dataset.colname || '').toLowerCase();
+        if (cn === 'paid_for_itself') pfiIdx = i;
+        else if (cn === 'price_return_pct') prIdx = i;
+        else if (cn === 'total_return_pct') trIdx = i;
+    }
+    table.querySelectorAll('tbody tr').forEach(function(tr) {
+        // Paid for itself >= 100% green
+        if (pfiIdx >= 0) {
+            var td = tr.children[pfiIdx];
+            if (td) {
+                var v = parseFloat(td.textContent.replace(/[%,]/g, ''));
+                if (!isNaN(v) && v >= 100) { td.style.color = '#4dff91'; td.style.fontWeight = 'bold'; }
+            }
+        }
+        // Price Return and Total Return: green if positive, red if negative
+        [prIdx, trIdx].forEach(function(idx) {
+            if (idx < 0) return;
+            var td = tr.children[idx];
+            if (!td) return;
+            var v = parseFloat(td.textContent.replace(/[%,]/g, ''));
+            if (!isNaN(v)) td.style.color = v >= 0 ? '#4dff91' : '#ff6b6b';
+        });
+    });
 })();
 </script>
 {% else %}
